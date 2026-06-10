@@ -197,12 +197,22 @@
     <div class="hero-badge">Slechts €&nbsp;6,- per koek</div>
   </div>
   <div class="section">
+
+    <div id="bestelperiode-banner" style="background:linear-gradient(135deg,#1a0000,#2a0000);border:1px solid #cc000055;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <div style="font-size:28px">📅</div>
+      <div>
+        <div style="font-weight:bold;color:#c9a030;font-size:14px" id="bestel-periode-titel">Bestelperiode</div>
+        <div style="font-size:12px;color:#aaa;margin-top:3px" id="bestel-periode-tekst">Laden...</div>
+        <div style="font-size:11px;color:#cc0000;margin-top:3px;font-weight:bold" id="bestel-deadline"></div>
+      </div>
+    </div>
     <div class="card">
       <div class="card-title">📋 Jouw bestelling</div>
       <div id="order-success" class="success-box" style="display:none">⌛ Bestelling aanmaken…</div>
       <div class="form-group"><label>Naam *</label><input id="f-naam" type="text" placeholder="Jan Jansen"></div>
       <div class="form-group"><label>E-mailadres *</label><input id="f-email" type="email" placeholder="jan@email.nl"></div>
       <div class="form-group"><label>Telefoon (optioneel)</label><input id="f-tel" type="tel" placeholder="06-12345678"></div>
+      <div class="form-group"><label>Via wie bestelt u? (optioneel)</label><input id="f-via" type="text" placeholder="bijv. Jan Jansen of zelf lid"></div>
       <div class="form-group">
         <label>Aantal koeken — € 6,- per stuk</label>
         <div class="counter">
@@ -530,6 +540,7 @@ function showPage(p) {
   if(p==='home'||p==='betaal') btns[0].classList.add('active'); else btns[1].classList.add('active');
   applySettings();
 checkSecretHash();
+updateBestelperiodeBanner();
   if(p==='admin') renderAdminPanel();
   window.scrollTo(0,0);
 }
@@ -561,6 +572,7 @@ function saveSettings() {
   settings.emailjsPublicKey  = document.getElementById('s-ejs-key').value;
   save(); applySettings();
 checkSecretHash();
+updateBestelperiodeBanner();
   const el = document.getElementById('settings-saved');
   el.style.display='block'; setTimeout(()=>el.style.display='none',2000);
 }
@@ -570,7 +582,7 @@ function changeAantal(d) {
   aantal = Math.max(1, Math.min(100, aantal + d));
   document.getElementById('c-num').textContent = aantal;
   const t = aantal * PRIJS;
-  document.getElementById('total-lbl').textContent = `${aantal} × € 6,-`;
+  document.getElementById('total-lbl').textContent = aantal+' \u00D7 \u20AC 6,-';
   document.getElementById('total-amt').textContent = fmt(t);
 }
 
@@ -578,6 +590,7 @@ function placeOrder() {
   const naam  = document.getElementById('f-naam').value.trim();
   const email = document.getElementById('f-email').value.trim();
   const tel   = document.getElementById('f-tel').value.trim();
+  const via   = document.getElementById('f-via').value.trim();
   const errEl = document.getElementById('order-err');
 
   if (!naam) { errEl.textContent='⚠️ Vul je naam in.'; errEl.style.display='block'; return; }
@@ -587,19 +600,20 @@ function placeOrder() {
   document.getElementById('order-success').style.display='block';
 
   const order = {
-    id:Date.now(), ref:genRef(), naam, email, tel,
+    id:Date.now(), ref:genRef(), naam, email, tel, via,
     aantal, totaal:aantal*PRIJS, datum:today(),
     tijdstip:new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}),
     betaald:false
   };
 
-  setTimeout(() => {
+  setTimeout(function() {
     orders.push(order); save();
     showBetaalPage(order);
     document.getElementById('order-success').style.display='none';
     document.getElementById('f-naam').value='';
     document.getElementById('f-email').value='';
     document.getElementById('f-tel').value='';
+    document.getElementById('f-via').value='';
     aantal=1; changeAantal(0);
   }, 600);
 }
@@ -641,13 +655,13 @@ function showBetaalPage(o) {
   document.getElementById('pay-amt2').textContent = fmt(o.totaal);
   document.getElementById('pay-omschr').textContent = o.ref+' \u2013 '+o.naam;
   var waText = encodeURIComponent('\uD83C\uDF6A Vondelkoeken \u2013 TTV ENTAC\n\nHallo! Ik heb '+o.aantal+' koek'+(o.aantal>1?'en':'')+' besteld.\n\u20AC '+fmt(o.totaal)+' \u00B7 Ref: '+o.ref+'\n\nOp weg naar de overboeking!');
-  document.getElementById('wa-link').href = `https://wa.me/${settings.whatsapp}?text=${waText}`;
+  document.getElementById('wa-link').href = 'https://wa.me/'+settings.whatsapp+'?text='+waText;
   showPage('betaal');
   // Generate EPC QR code after page is shown
-  setTimeout(() => {
+  setTimeout(function() {
     document.getElementById('qr-amount-disp').textContent = fmt(o.totaal);
-    document.getElementById('qr-ref-disp').textContent = o.ref + ' – ' + o.naam;
-    generateEpcQr(settings.iban, DEFAULT_TENAAM, o.totaal, o.ref + ' ' + o.naam);
+    document.getElementById('qr-ref-disp').textContent = o.ref+' \u2013 '+o.naam;
+    generateEpcQr(settings.iban, DEFAULT_TENAAM, o.totaal, o.ref+' '+o.naam);
   }, 100);
 }
 
@@ -660,7 +674,7 @@ function doLogin() {
     currentAdmin = admin;
     document.getElementById('admin-login').style.display='none';
     document.getElementById('admin-panel').style.display='block';
-    document.getElementById('admin-welcome').textContent = `🔑 ${admin.naam} · ${admin.role==='super'?'Hoofdbeheerder':'Beheerder'}`;
+    document.getElementById('admin-welcome').textContent = '\uD83D\uDD11 '+admin.naam+' \u00B7 '+(admin.role==='super'?'Hoofdbeheerder':'Beheerder');
     // hide super-only tabs for non-super
     const hide = admin.role !== 'super';
     document.getElementById('tab-btn-beheerders').style.display = hide?'none':'';
@@ -749,7 +763,21 @@ function updateStats() {
 
 function updateExportInfo() {
   const {totK} = calcStats();
-  document.getElementById('export-info').textContent = `${orders.length} bestellingen · ${totK} koeken`;
+  document.getElementById('export-info').textContent = orders.length+' bestellingen \u00B7 '+totK+' koeken';
+}
+
+
+function deleteOrder(id) {
+  var o = orders.find(function(x){ return x.id===id; });
+  if (!o) return;
+  var waarschuwing = o.betaald
+    ? 'LET OP: deze bestelling is al BETAALD!\n\nToch verwijderen: '+o.naam+' | '+fmt(o.totaal)+'?'
+    : 'Bestelling verwijderen?\n\n'+o.naam+' | '+o.aantal+' koek'+(o.aantal>1?'en':'')+' | '+fmt(o.totaal)+'\n\nDit kan niet ongedaan worden gemaakt.';
+  if (!confirm(waarschuwing)) return;
+  orders = orders.filter(function(x){ return x.id!==id; });
+  save();
+  renderOrders();
+  updateStats();
 }
 
 function togglePaid(id) {
@@ -769,8 +797,10 @@ function renderOrders() {
     var inkoopBedrag = (o.aantal * INKOOP_PER_KOEK).toFixed(2).replace('.',',');
     var betaaldBadge = o.betaald ? '<span class="badge-ok">Betaald</span>' : '<span class="badge-err">Open</span>';
     var winst = o.betaald ? '<div style="font-size:11px;color:#22c55e;margin-top:4px">ENTAC: &euro;&nbsp;'+entacBedrag+' &nbsp;|&nbsp; Inkoop: &euro;&nbsp;'+inkoopBedrag+'</div>' : '';
+    var delBtn = canEdit ? '<button class="btn-sm" style="background:#2a0000;color:#ff6b6b;border:1px solid #ff6b6b55;margin-left:4px" onclick="deleteOrder('+o.id+')">&#x1F5D1;</button>' : '';
     var editBtn = canEdit ? '<button class="btn-sm '+(o.betaald?'btn-sm-red':'btn-sm-green')+'" onclick="togglePaid('+o.id+')">'+(o.betaald?'&#x21A9; Ongedaan':'&#x2705; Betaald')+'</button>' : '';
-    var contact = (o.email||o.tel) ? '<div style="font-size:11px;color:#999;margin-top:6px">'+(o.email?'&#x1F4E7; '+o.email:'')+(o.tel?' &nbsp;&#x1F4DE; '+o.tel:'')+'</div>' : '';
+    var viaStr = o.via ? '<div style="font-size:11px;color:#c9a030;margin-top:3px">&#x1F91D; Via: '+o.via+'</div>' : '';
+    var contact = (o.email||o.tel) ? '<div style="font-size:11px;color:#999;margin-top:4px">'+(o.email?'&#x1F4E7; '+o.email:'')+(o.tel?' &nbsp;&#x1F4DE; '+o.tel:'')+'</div>' : '';
     return '<div class="order-card">'
       + '<div class="order-row">'
       + '<div><div class="order-name">'+o.naam+'</div>'
@@ -781,8 +811,11 @@ function renderOrders() {
       + '<div><span style="color:#999;font-size:13px">'+o.aantal+' koek'+(o.aantal>1?'en':'')+' &middot; </span>'
       + '<strong style="color:#c9a030;font-size:15px">&euro;&nbsp;'+o.totaal.toFixed(2).replace('.',',')+'</strong></div>'
       + editBtn
+      + ' '
+      + delBtn
       + '</div>'
       + winst
+      + viaStr
       + contact
       + '</div>';
   }).join('');
@@ -861,7 +894,7 @@ function exportExcel() {
   ws3['!cols']=[{wch:36},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws3, 'Financieel');
 
-  XLSX.writeFile(wb, `entac-vondelkoeken-${today().replace(/\//g,'-')}.xlsx`);
+  XLSX.writeFile(wb, 'entac-vondelkoeken-'+today().replace(/\//g,'-')+'.xlsx');
 }
 
 // ── MELDINGEN ──────────────────────────────────────────────────────────────────
@@ -893,7 +926,7 @@ function sendWhatsApp(id) {
   const tel = o.tel.replace(/\D/g, '');
   const intTel = tel.startsWith('0') ? '31' + tel.substring(1) : tel;
   const tekst = encodeURIComponent(getMeldingTekst(o));
-  window.open(`https://wa.me/${intTel}?text=${tekst}`, '_blank');
+  window.open('https://wa.me/'+intTel+'?text='+tekst, '_blank');
   markGemeld(id, true);
 }
 
@@ -912,13 +945,13 @@ function sendEmail(id) {
       bericht: getMeldingTekst(o)
     }).then(() => {
       markGemeld(id, true);
-      alert(`✅ E-mail verstuurd naar ${o.naam}!`);
+      alert('E-mail verstuurd naar '+o.naam+'!');
     }).catch(err => {
       alert('E-mail mislukt: ' + err.text + '\nMailto wordt geopend als alternatief.');
-      window.location.href = `mailto:${o.email}?subject=${sub}&body=${body}`;
+      window.location.href = 'mailto:'+o.email+'?subject='+sub+'&body='+body;
     });
   } else {
-    window.location.href = `mailto:${o.email}?subject=${sub}&body=${body}`;
+    window.location.href = 'mailto:'+o.email+'?subject='+sub+'&body='+body;
     markGemeld(id, true);
   }
 }
@@ -933,18 +966,18 @@ function openBulkWhatsApp() {
     const tel = o.tel.replace(/\D/g,'');
     const intTel = tel.startsWith('0') ? '31'+tel.substring(1) : tel;
     const tekst = encodeURIComponent(getMeldingTekst(o));
-    window.open(`https://wa.me/${intTel}?text=${tekst}`, '_blank');
+    window.open('https://wa.me/'+intTel+'?text='+tekst, '_blank');
     o.gemeld = true; save();
     if (i < pending.length) {
-      setTimeout(() => { if (confirm(`Bericht verstuurd aan ${o.naam}. Volgende: ${pending[i].naam}?`)) next(); else { renderMeldingen(); updateBulkInfo(); } }, 500);
+      setTimeout(function() { if (confirm('Bericht verstuurd aan '+o.naam+'. Volgende: '+pending[i].naam+'?')) next(); else { renderMeldingen(); updateBulkInfo(); } }, 500);
     } else { renderMeldingen(); updateBulkInfo(); alert('✅ Alle klanten gemeld!'); }
   }
-  if (confirm(`WhatsApp ronde starten voor ${pending.length} klant${pending.length>1?'en':''}?`)) next();
+  if (confirm('WhatsApp ronde starten voor '+pending.length+' klant'+(pending.length>1?'en':'')+'?')) next();
 }
 
 function updateBulkInfo() {
   const pending = orders.filter(o => !o.gemeld);
-  document.getElementById('bulk-info').textContent = `${pending.length} klant${pending.length!==1?'en':''} nog te melden`;
+  document.getElementById('bulk-info').textContent = pending.length+' klant'+(pending.length!==1?'en':'')+' nog te melden';
 }
 
 function renderMeldingen() {
@@ -953,28 +986,61 @@ function renderMeldingen() {
                meldFilter === 'gemeld' ? orders.filter(o => o.gemeld)  : orders;
   const el = document.getElementById('meldingen-list');
   if (!list.length) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#999999">🍪 Geen bestellingen in dit filter</div>'; return; }
-  el.innerHTML = list.map(o => `
-    <div class="order-card" style="border-left:4px solid ${o.gemeld ? '#22c55e' : '#cc0000'}">
-      <div class="order-row">
-        <div>
-          <div class="order-name">${o.naam}</div>
-          <div class="order-meta">${o.ref} · ${o.aantal} koek${o.aantal>1?'en':''} · ${o.datum}</div>
-          ${o.email ? `<div class="order-meta">📧 ${o.email}</div>` : ''}
-          ${o.tel   ? `<div class="order-meta">📞 ${o.tel}</div>` : ''}
-          ${!o.email && !o.tel ? `<div class="order-meta" style="color:#ef4444">⚠️ Geen contactgegevens</div>` : ''}
-        </div>
-        <span class="${o.gemeld ? 'badge-ok' : 'badge-err'}">${o.gemeld ? '✅ Gemeld' : '⏳ Te melden'}</span>
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        ${o.tel   ? `<button class="btn-sm btn-sm-green" onclick="sendWhatsApp(${o.id})">📲 WhatsApp</button>` : '<span style="font-size:11px;color:#999999">Geen telefoon</span>'}
-        ${o.email ? `<button class="btn-sm btn-sm-amber" onclick="sendEmail(${o.id})">📧 E-mail</button>` : ''}
-        <button class="btn-sm ${o.gemeld ? 'btn-sm-red' : 'btn-sm-dark'}" onclick="markGemeld(${o.id},${!o.gemeld})">
-          ${o.gemeld ? '↩ Ongedaan' : '✓ Markeer gemeld'}
-        </button>
-      </div>
-    </div>`).join('');
+  el.innerHTML = list.map(function(o) {
+    var borderColor = o.gemeld ? '#22c55e' : '#cc0000';
+    var badge = o.gemeld ? '<span class="badge-ok">Gemeld</span>' : '<span class="badge-err">Te melden</span>';
+    var viaRow   = o.via   ? '<div class="order-meta" style="color:#c9a030">&#x1F91D; Via: '+o.via+'</div>' : '';
+    var emailRow = o.email ? '<div class="order-meta">&#x1F4E7; '+o.email+'</div>' : '';
+    var telRow   = o.tel   ? '<div class="order-meta">&#x1F4DE; '+o.tel+'</div>' : '';
+    var noContact = (!o.email && !o.tel) ? '<div class="order-meta" style="color:#ff4444">&#x26A0; Geen contactgegevens</div>' : '';
+    var waBtn  = o.tel   ? '<button class="btn-sm btn-sm-green" onclick="sendWhatsApp('+o.id+')">&#x1F4F2; WhatsApp</button>' : '<span style="font-size:11px;color:#666">Geen telefoon</span>';
+    var mailBtn= o.email ? '<button class="btn-sm btn-sm-amber" onclick="sendEmail('+o.id+')">&#x1F4E7; E-mail</button>' : '';
+    var markBtn= '<button class="btn-sm '+(o.gemeld?'btn-sm-red':'btn-sm-dark')+'" onclick="markGemeld('+o.id+','+ !o.gemeld+')">'+(o.gemeld?'&#x21A9; Ongedaan':'&#x2713; Markeer gemeld')+'</button>';
+    return '<div class="order-card" style="border-left:4px solid '+borderColor+'">'
+      + '<div class="order-row"><div>'
+      + '<div class="order-name">'+o.naam+'</div>'
+      + '<div class="order-meta">'+o.ref+' &middot; '+o.aantal+' koek'+(o.aantal>1?'en':'')+' &middot; '+o.datum+'</div>'
+      + viaRow + emailRow + telRow + noContact
+      + '</div>' + badge + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
+      + waBtn + ' ' + mailBtn + ' ' + markBtn
+      + '</div></div>';
+  }).join('');;
 }
 
+
+
+// ── BESTELPERIODE BANNER ───────────────────────────────────────────────────────
+function updateBestelperiodeBanner() {
+  var now = new Date();
+  var jaar = now.getFullYear();
+  var maand = now.getMonth(); // 0-indexed
+  var dag = now.getDate();
+
+  var maandNamen = ['januari','februari','maart','april','mei','juni',
+                    'juli','augustus','september','oktober','november','december'];
+
+  // Laatste dag van huidige maand
+  var laatsteDag = new Date(jaar, maand + 1, 0).getDate();
+
+  // Huidige periode: 1 t/m laatste dag van deze maand
+  var periodeStart = '1 ' + maandNamen[maand];
+  var periodeEind  = laatsteDag + ' ' + maandNamen[maand] + ' ' + jaar;
+
+  // Volgende bestelling: eerste week van volgende maand
+  var volgendeMaand = maand === 11 ? 0 : maand + 1;
+  var volgendJaar   = maand === 11 ? jaar + 1 : jaar;
+
+  var titelEl   = document.getElementById('bestel-periode-titel');
+  var tekstEl   = document.getElementById('bestel-periode-tekst');
+  var deadlineEl= document.getElementById('bestel-deadline');
+
+  if (!titelEl) return;
+
+  titelEl.textContent   = 'Bestelperiode ' + maandNamen[maand].charAt(0).toUpperCase() + maandNamen[maand].slice(1) + ' ' + jaar;
+  tekstEl.textContent   = 'Bestel van ' + periodeStart + ' t/m ' + periodeEind;
+  deadlineEl.textContent= '\u23F0 Bestelling naar bakkerij: week 1 van ' + maandNamen[volgendeMaand] + ' ' + volgendJaar;
+}
 
 // ── GEHEIME BEHEER TOEGANG ────────────────────────────────────────────────────
 let logoTapCount = 0;
@@ -996,7 +1062,7 @@ function revealAdmin() {
   if (btn) {
     btn.style.display = 'inline-block';
     btn.style.animation = 'fadeIn 0.4s ease';
-    setTimeout(() => { btn.style.display = 'none'; showPage('admin'); }, 600);
+    setTimeout(function() { btn.style.display = 'none'; showPage('admin'); }, 600);
   } else {
     showPage('admin');
   }
@@ -1014,6 +1080,7 @@ function checkSecretHash() {
 // ── INIT ──────────────────────────────────────────────────────────────────────
 applySettings();
 checkSecretHash();
+updateBestelperiodeBanner();
 </script>
 </body>
 </html>
