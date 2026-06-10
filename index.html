@@ -1254,11 +1254,45 @@ function exportExcel(type) {
     ws1['!cols'] = [13,18,22,13,18,10,10,10,8,11,11,10].map(function(w){return{wch:w};});
     XLSX.utils.book_append_sheet(wb, ws1, 'Bestellingen');
 
-    var r2 = [['Naam','Aantal koeken']];
-    for (var i = 0; i < exportOrders.length; i++) r2.push([exportOrders[i].naam, exportOrders[i].aantal]);
-    r2.push([]); r2.push(['TOTAAL KOEKEN', totK2]);
+    // ── Leverancierslijst met smaakindeling ─────────────────────────────────
+    var totOrig2 = exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.original)||0);},0);
+    var totKard2 = exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.kardemom)||0);},0);
+    var totCran2 = exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.cranberry)||0);},0);
+    var totZonder2 = exportOrders.filter(function(o){return !o.smaken||(o.smaken.original+o.smaken.kardemom+o.smaken.cranberry)===0;}).reduce(function(s,o){return s+o.aantal;},0);
+
+    var r2 = [
+      ['TTV ENTAC – Leverancierslijst Vondelkoeken'],
+      ['Periode: ' + periodeLabel + '  |  Datum: ' + today()],
+      [],
+      ['Naam besteller', 'Via wie', 'Original', 'Kardemom', 'Cranberry', 'Totaal']
+    ];
+    for (var i = 0; i < exportOrders.length; i++) {
+      var o2 = exportOrders[i];
+      var hs = o2.smaken && (o2.smaken.original + o2.smaken.kardemom + o2.smaken.cranberry) > 0;
+      r2.push([
+        o2.naam, o2.via||'',
+        hs ? o2.smaken.original  : '⚠ onbekend',
+        hs ? o2.smaken.kardemom  : '⚠ onbekend',
+        hs ? o2.smaken.cranberry : '⚠ onbekend',
+        o2.aantal
+      ]);
+    }
+    r2.push([]);
+    r2.push(['TOTAAL PER SMAAK', '', totOrig2, totKard2, totCran2, totK2]);
+    r2.push([]);
+    r2.push(['SAMENVATTING']);
+    r2.push(['Smaak', 'Koeken te bestellen']);
+    r2.push(['Original',  totOrig2]);
+    r2.push(['Kardemom',  totKard2]);
+    r2.push(['Cranberry', totCran2]);
+    if (totZonder2 > 0) {
+      r2.push(['⚠ Onbekende smaak (navragen)', totZonder2]);
+    }
+    r2.push(['']);
+    r2.push(['TOTAAL KOEKEN', totK2]);
+
     var ws2 = XLSX.utils.aoa_to_sheet(r2);
-    ws2['!cols'] = [{wch:24},{wch:16}];
+    ws2['!cols'] = [{wch:24},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws2, 'Leverancierslijst');
 
     var r3 = [
