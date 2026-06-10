@@ -566,254 +566,344 @@ TTV ENTAC Enschede</textarea>
 </footer>
 
 <script>
-// ── DATA ───────────────────────────────────────────────────────────────────────
-const PRIJS = 6;
-const INKOOP_PER_KOEK = 3.52;
-const ENTAC_PER_KOEK = PRIJS - INKOOP_PER_KOEK;
-const SMAKEN = [
-  { id:'original', naam:'Original',  kleur:'#e8892b', omschrijving:'Knapperig van buiten en zacht van binnen met authentieke specerijen.' },
-  { id:'kardemom', naam:'Kardemom',  kleur:'#5a9a3a', omschrijving:'Kardemom, limoen, vijgen & sinaasappel.' },
-  { id:'cranberry',naam:'Cranberry', kleur:'#cc4400', omschrijving:'Sinaasappel, cranberry & vanille.' }
-];
+// ── CONSTANTS & STATE ─────────────────────────────────────────────────────────
+var PRIJS = 6;
+var INKOOP_PER_KOEK = 3.52;
+var ENTAC_PER_KOEK = 2.48;
+var DEFAULT_IBAN = "NL16 ABNA 0592 1386 15";
+var DEFAULT_TENAAM = "ENTAC";
 
-let orders   = JSON.parse(localStorage.getItem('entac-vdk-orders')   || '[]');
-let admins   = JSON.parse(localStorage.getItem('entac-vdk-admins')   || 'null') || [{id:1,naam:"Hoofdbeheerder",username:"entac",password:"entac2026!",role:"super"}];
-const DEFAULT_IBAN = "NL16 ABNA 0592 1386 15";
-const DEFAULT_TENAAM = "ENTAC";
-let settings = JSON.parse(localStorage.getItem('entac-vdk-settings') || 'null') || {};
-// Zorg dat alle velden altijd aanwezig zijn
+var orders = JSON.parse(localStorage.getItem('entac-vdk-orders') || '[]');
+var admins = JSON.parse(localStorage.getItem('entac-vdk-admins') || 'null') || [
+  {id:1, naam:"Hoofdbeheerder", username:"entac", password:"entac2026!", role:"super"}
+];
+var settings = JSON.parse(localStorage.getItem('entac-vdk-settings') || 'null') || {};
 if (!settings.actieTitel) settings.actieTitel = "Vondelkoeken Actie 2026";
 if (!settings.whatsapp)   settings.whatsapp   = "31600000000";
-if (!settings.infoTekst)  settings.infoTekst  = "Steun TTV ENTAC met een heerlijke ambachtelijke Vondelkoek!\n\nDe Vondelkoeken zijn speculaaskoeken met een krokante buitenkant en zachte kern, gebakken met 100% roomboter door bakkerij Vondelkoeken in Almelo — het originele recept van bakker Frans Ruhof uit Deventer.\n\nElke koek kost €6,-. Na je bestelling ontvang je betaalinstructies. Vragen? Mail naar info@entac.nl";
-// Corrigeer foutief of leeg IBAN (overschrijft altijd oud placeholder)
-if (!settings.iban || settings.iban.includes('NL00') || settings.iban.includes('0000') || settings.iban.trim() === '') {
+if (!settings.iban || settings.iban.indexOf('NL00') >= 0 || settings.iban.trim() === '') {
   settings.iban = DEFAULT_IBAN;
 }
+if (!settings.infoTekst) settings.infoTekst = "Steun TTV ENTAC met een heerlijke ambachtelijke Vondelkoek!\n\nDe Vondelkoeken zijn speculaaskoeken met een krokante buitenkant en zachte kern, gebakken met 100% roomboter door bakkerij Vondelkoeken in Almelo.\n\nElke koek kost \u20ac6,-. Na je bestelling ontvang je betaalinstructies.\n\n\ud83d\udcc5 HOE WERKT HET BESTELLEN?\nBestellingen kunnen elke maand geplaatst worden van de 1e t/m de laatste dag van de maand. In de eerste week van de nieuwe maand wordt de verzamelbestelling geplaatst bij de bakkerij.\n\nVragen? Mail naar info@entac.nl";
 localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
 
-let currentAdmin = null;
-let currentFilter = 'alle';
-let aantal = 1;
 var smaken = {original:0, kardemom:0, cranberry:0};
+var currentAdmin = null;
+var currentFilter = 'alle';
+var exportMaandFilter = 'alle';
+var meldFilter = 'alle';
+var maandNamenExport = ['Januari','Februari','Maart','April','Mei','Juni','Juli','Augustus','September','Oktober','November','December'];
 
-function getTotaalAantal() {
-  return smaken.original + smaken.kardemom + smaken.cranberry;
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function fmt(n) { return '\u20ac\u00a0' + Number(n).toFixed(2).replace('.', ','); }
+function today() { return new Date().toLocaleDateString('nl-NL'); }
+function genRef() { return 'VDK-' + Math.random().toString(36).substring(2,8).toUpperCase(); }
+
+function save() {
+  localStorage.setItem('entac-vdk-orders',   JSON.stringify(orders));
+  localStorage.setItem('entac-vdk-admins',   JSON.stringify(admins));
+  localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
 }
 
-function changeSmaak(smaak, d) {
-  smaken[smaak] = Math.max(0, Math.min(100, smaken[smaak] + d));
-  document.getElementById('cnt-'+smaak).textContent = smaken[smaak];
+// ── SMAAK COUNTERS ────────────────────────────────────────────────────────────
+function getTotaalAantal() {
+  return (smaken.original || 0) + (smaken.kardemom || 0) + (smaken.cranberry || 0);
+}
+
+function changeSmaak(smaak, delta) {
+  smaken[smaak] = Math.max(0, Math.min(100, (smaken[smaak] || 0) + delta));
+  var el = document.getElementById('cnt-' + smaak);
+  if (el) el.textContent = smaken[smaak];
   updateTotaalDisplay();
 }
 
 function updateTotaalDisplay() {
   var totaal = getTotaalAantal();
-  var t = totaal * PRIJS;
-  var lbl = totaal === 0 ? '0 koeken geselecteerd' : totaal+' koek'+(totaal>1?'en':'')+' × € 6,-';
-  var el1 = document.getElementById('total-lbl');
-  var el2 = document.getElementById('total-amt');
-  if (el1) el1.textContent = lbl;
-  if (el2) el2.textContent = fmt(t);
+  var bedrag = totaal * PRIJS;
+  var lbl = totaal === 0 ? '0 koeken geselecteerd' : totaal + ' koek' + (totaal > 1 ? 'en' : '') + ' \u00d7 \u20ac 6,-';
+  var elLbl = document.getElementById('total-lbl');
+  var elAmt = document.getElementById('total-amt');
+  if (elLbl) elLbl.textContent = lbl;
+  if (elAmt) elAmt.textContent = fmt(bedrag);
 }
 
-function save() {
-  localStorage.setItem('entac-vdk-orders', JSON.stringify(orders));
-  localStorage.setItem('entac-vdk-admins', JSON.stringify(admins));
-  localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
-}
-
-// ── HELPERS ────────────────────────────────────────────────────────────────────
-const fmt = n => '€\u00a0' + Number(n).toFixed(2).replace('.', ',');
-const today = () => new Date().toLocaleDateString('nl-NL');
-const genRef = () => 'VDK-' + Math.random().toString(36).substring(2,8).toUpperCase();
-
-// ── NAV ────────────────────────────────────────────────────────────────────────
+// ── NAVIGATION ────────────────────────────────────────────────────────────────
 function showPage(p) {
-  document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(el=>el.classList.remove('active'));
-  document.getElementById('page-'+p).classList.add('active');
-  const btns = document.querySelectorAll('.nav-btn');
-  if(p==='home'||p==='betaal') btns[0].classList.add('active'); else btns[1].classList.add('active');
+  var pages = document.querySelectorAll('.page');
+  for (var i = 0; i < pages.length; i++) pages[i].classList.remove('active');
+  var navBtns = document.querySelectorAll('.nav-btn');
+  for (var i = 0; i < navBtns.length; i++) navBtns[i].classList.remove('active');
+  document.getElementById('page-' + p).classList.add('active');
+  var navBestellen = document.getElementById('nav-bestellen');
+  if (p === 'home' || p === 'betaal') {
+    if (navBestellen) navBestellen.classList.add('active');
+  }
   applySettings();
-checkSecretHash();
-updateBestelperiodeBanner();
-  if(p==='admin') renderAdminPanel();
-  window.scrollTo(0,0);
+  if (p === 'admin') renderAdminPanel();
+  window.scrollTo(0, 0);
 }
 
-// ── SETTINGS ──────────────────────────────────────────────────────────────────
+// ── SETTINGS ─────────────────────────────────────────────────────────────────
 function applySettings() {
-  document.getElementById('hero-title').textContent = settings.actieTitel;
-  document.getElementById('info-text').textContent  = settings.infoTekst;
-  document.getElementById('pay-iban').textContent   = settings.iban;
+  var t = document.getElementById('hero-title');
+  var i = document.getElementById('info-text');
+  var iban = document.getElementById('pay-iban');
+  if (t) t.textContent = settings.actieTitel;
+  if (i) i.textContent = settings.infoTekst;
+  if (iban) iban.textContent = settings.iban;
+  updateBestelperiodeBanner();
 }
 
 function loadSettingsForm() {
-  document.getElementById('s-titel').value = settings.actieTitel;
-  document.getElementById('s-iban').value  = settings.iban;
-  document.getElementById('s-wa').value    = settings.whatsapp;
-  document.getElementById('s-info').value  = settings.infoTekst;
-  document.getElementById('s-ejs-service').value  = settings.emailjsServiceId  || '';
-  document.getElementById('s-ejs-template').value = settings.emailjsTemplateId || '';
-  document.getElementById('s-ejs-key').value      = settings.emailjsPublicKey  || '';
+  var fields = {
+    's-titel': settings.actieTitel,
+    's-iban':  settings.iban,
+    's-wa':    settings.whatsapp,
+    's-info':  settings.infoTekst,
+    's-ejs-service':  settings.emailjsServiceId  || '',
+    's-ejs-template': settings.emailjsTemplateId || '',
+    's-ejs-key':      settings.emailjsPublicKey  || ''
+  };
+  for (var k in fields) {
+    var el = document.getElementById(k);
+    if (el) el.value = fields[k];
+  }
 }
 
 function saveSettings() {
-  settings.actieTitel       = document.getElementById('s-titel').value;
-  settings.iban             = document.getElementById('s-iban').value;
-  settings.whatsapp         = document.getElementById('s-wa').value;
-  settings.infoTekst        = document.getElementById('s-info').value;
+  settings.actieTitel        = document.getElementById('s-titel').value;
+  settings.iban              = document.getElementById('s-iban').value;
+  settings.whatsapp          = document.getElementById('s-wa').value;
+  settings.infoTekst         = document.getElementById('s-info').value;
   settings.emailjsServiceId  = document.getElementById('s-ejs-service').value;
   settings.emailjsTemplateId = document.getElementById('s-ejs-template').value;
   settings.emailjsPublicKey  = document.getElementById('s-ejs-key').value;
   save(); applySettings();
-checkSecretHash();
-updateBestelperiodeBanner();
-  const el = document.getElementById('settings-saved');
-  el.style.display='block'; setTimeout(()=>el.style.display='none',2000);
+  var el = document.getElementById('settings-saved');
+  if (el) { el.style.display = 'block'; setTimeout(function(){ el.style.display = 'none'; }, 2000); }
+}
+
+// ── BESTELPERIODE ─────────────────────────────────────────────────────────────
+function updateBestelperiodeBanner() {
+  var now = new Date();
+  var jaar = now.getFullYear();
+  var maand = now.getMonth();
+  var maandNamen = ['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'];
+  var lastDay = new Date(jaar, maand + 1, 0).getDate();
+  var vMaand = maand === 11 ? 0 : maand + 1;
+  var vJaar  = maand === 11 ? jaar + 1 : jaar;
+  var mNaam = maandNamen[maand];
+  var titEl  = document.getElementById('bestel-periode-titel');
+  var txtEl  = document.getElementById('bestel-periode-tekst');
+  var dlEl   = document.getElementById('bestel-deadline');
+  if (titEl) titEl.textContent = 'Bestelperiode ' + mNaam.charAt(0).toUpperCase() + mNaam.slice(1) + ' ' + jaar;
+  if (txtEl) txtEl.textContent = 'Bestel van 1 ' + mNaam + ' t/m ' + lastDay + ' ' + mNaam + ' ' + jaar;
+  if (dlEl)  dlEl.textContent  = '\u23f0 Bestelling naar bakkerij: week 1 van ' + maandNamen[vMaand] + ' ' + vJaar;
 }
 
 // ── ORDER FORM ────────────────────────────────────────────────────────────────
-function changeAantal(d) {
-  aantal = Math.max(1, Math.min(100, aantal + d));
-  document.getElementById('c-num').textContent = aantal;
-  const t = aantal * PRIJS;
-  document.getElementById('total-lbl').textContent = aantal+' \u00D7 \u20AC 6,-';
-  document.getElementById('total-amt').textContent = fmt(t);
-}
-
 function placeOrder() {
-  const naam  = document.getElementById('f-naam').value.trim();
-  const email = document.getElementById('f-email').value.trim();
-  const tel   = document.getElementById('f-tel').value.trim();
-  const via   = document.getElementById('f-via').value.trim();
-  const errEl = document.getElementById('order-err');
+  var naam  = document.getElementById('f-naam').value.trim();
+  var email = document.getElementById('f-email').value.trim();
+  var tel   = document.getElementById('f-tel').value.trim();
+  var via   = document.getElementById('f-via').value.trim();
+  var errEl = document.getElementById('order-err');
+  var totaalAantal = getTotaalAantal();
 
-  if (!naam) { errEl.textContent='⚠️ Vul je naam in.'; errEl.style.display='block'; return; }
-  if (!email.includes('@')) { errEl.textContent='⚠️ Vul een geldig e-mailadres in.'; errEl.style.display='block'; return; }
-  if (!via) { errEl.textContent='⚠️ Geef aan via wie je bestelt.'; errEl.style.display='block'; return; }
-  if (aantal === 0) { errEl.textContent='⚠️ Selecteer minimaal 1 koek.'; errEl.style.display='block'; return; }
-  errEl.style.display='none';
+  errEl.style.display = 'none';
+  if (!naam)               { errEl.textContent = '\u26a0\ufe0f Vul je naam in.'; errEl.style.display = 'block'; return; }
+  if (!email.includes('@')){ errEl.textContent = '\u26a0\ufe0f Vul een geldig e-mailadres in.'; errEl.style.display = 'block'; return; }
+  if (!via)                { errEl.textContent = '\u26a0\ufe0f Geef aan via wie je bestelt.'; errEl.style.display = 'block'; return; }
+  if (totaalAantal === 0)  { errEl.textContent = '\u26a0\ufe0f Selecteer minimaal 1 koek.'; errEl.style.display = 'block'; return; }
 
-  document.getElementById('order-success').style.display='block';
+  var succEl = document.getElementById('order-success');
+  if (succEl) succEl.style.display = 'block';
 
-  const order = {
-    id:Date.now(), ref:genRef(), naam, email, tel, via,
-    aantal, smaken:{original:smaken.original, kardemom:smaken.kardemom, cranberry:smaken.cranberry},
-    totaal:aantal*PRIJS, datum:today(),
-    tijdstip:new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}),
-    betaald:false
+  var order = {
+    id: Date.now(), ref: genRef(), naam: naam, email: email, tel: tel, via: via,
+    aantal: totaalAantal,
+    smaken: {original: smaken.original, kardemom: smaken.kardemom, cranberry: smaken.cranberry},
+    totaal: totaalAantal * PRIJS,
+    datum: today(),
+    tijdstip: new Date().toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'}),
+    betaald: false, gemeld: false
   };
 
   setTimeout(function() {
-    orders.push(order); save();
+    orders.push(order);
+    save();
     buildMaandFilterBtns();
-    showBetaalPage(order);
-    document.getElementById('order-success').style.display='none';
-    document.getElementById('f-naam').value='';
-    document.getElementById('f-email').value='';
-    document.getElementById('f-tel').value='';
-    document.getElementById('f-via').value='';
-    smaken={original:0,kardemom:0,cranberry:0};
-    document.getElementById('cnt-original').textContent='0';
-    document.getElementById('cnt-kardemom').textContent='0';
-    document.getElementById('cnt-cranberry').textContent='0';
+    if (succEl) succEl.style.display = 'none';
+    // Reset form
+    document.getElementById('f-naam').value  = '';
+    document.getElementById('f-email').value = '';
+    document.getElementById('f-tel').value   = '';
+    document.getElementById('f-via').value   = '';
+    smaken = {original:0, kardemom:0, cranberry:0};
+    ['original','kardemom','cranberry'].forEach(function(s) {
+      var el = document.getElementById('cnt-' + s);
+      if (el) el.textContent = '0';
+    });
     updateTotaalDisplay();
+    showBetaalPage(order);
   }, 600);
 }
 
+function showBetaalPage(o) {
+  var refHero  = document.getElementById('pay-ref-hero');
+  var payAmt   = document.getElementById('pay-amt');
+  var paySub   = document.getElementById('pay-sub');
+  var payRef   = document.getElementById('pay-ref');
+  var payAmt2  = document.getElementById('pay-amt2');
+  var payOmschr= document.getElementById('pay-omschr');
+  var qrAmt    = document.getElementById('qr-amount-disp');
+  var qrRef    = document.getElementById('qr-ref-disp');
+
+  if (refHero)  refHero.textContent  = 'Referentie: ' + o.ref;
+  if (payAmt)   payAmt.textContent   = fmt(o.totaal);
+  if (paySub)   paySub.textContent   = o.aantal + ' koek' + (o.aantal > 1 ? 'en' : '') + ' voor ' + o.naam;
+  if (payRef)   payRef.textContent   = '\ud83d\udccb Referentie: ' + o.ref + ' \u2014 bewaar dit!';
+  if (payAmt2)  payAmt2.textContent  = fmt(o.totaal);
+  if (payOmschr)payOmschr.textContent= o.ref + ' \u2013 ' + o.naam;
+  if (qrAmt)    qrAmt.textContent    = fmt(o.totaal);
+  if (qrRef)    qrRef.textContent    = o.ref + ' \u2013 ' + o.naam;
+
+  showPage('betaal');
+  setTimeout(function() {
+    generateEpcQr(settings.iban, DEFAULT_TENAAM, o.totaal, o.ref + ' ' + o.naam);
+  }, 150);
+}
+
+// ── QR CODE ───────────────────────────────────────────────────────────────────
 function generateEpcQr(iban, naam, bedrag, referentie) {
   try {
     if (typeof QRCode === 'undefined') {
-      document.getElementById('qr-code').innerHTML = '<div style="color:#888;font-size:12px;padding:20px">QR niet beschikbaar — gebruik handmatige overboeking.</div>';
+      var c = document.getElementById('qr-code');
+      if (c) c.innerHTML = '<div style="color:#888;font-size:12px;padding:16px;text-align:center">QR niet beschikbaar \u2014 gebruik handmatige overboeking.</div>';
       return;
     }
-    // EPC QR — gebruik alleen de referentie-code (geen naam) om overflow te voorkomen
-    var ibanClean = iban.replace(/\s/g,'');
-    var kortRef = referentie.split(' ')[0]; // alleen "VDK-XXXXXX"
-    var amtStr = 'EUR' + bedrag.toFixed(2);
-    // Maximaal compact: lege velden weglaten waar mogelijk
-    var epcData = 'BCD\n002\n1\nSCT\n\n' + naam + '\n' + ibanClean + '\n' + amtStr + '\n\n' + kortRef + '\n\n';
+    var ibanClean = iban.replace(/\s/g, '');
+    var kortRef = referentie.split(' ')[0];
+    var epcData = 'BCD\n002\n1\nSCT\n\n' + naam + '\n' + ibanClean + '\nEUR' + bedrag.toFixed(2) + '\n\n' + kortRef + '\n\n';
     var container = document.getElementById('qr-code');
+    if (!container) return;
     container.innerHTML = '';
     new QRCode(container, {
-      text: epcData,
-      width: 200,
-      height: 200,
-      colorDark: '#111111',
-      colorLight: '#f4f4f4',
-      correctLevel: QRCode.CorrectLevel.L  // Level L = kleinste QR, meeste data
+      text: epcData, width: 200, height: 200,
+      colorDark: '#111111', colorLight: '#f4f4f4',
+      correctLevel: QRCode.CorrectLevel.L
     });
   } catch(e) {
     console.warn('QR generatie mislukt:', e);
     var c = document.getElementById('qr-code');
-    if (c) c.innerHTML = '<div style="color:#888;font-size:12px;padding:16px;text-align:center">&#9888; QR niet beschikbaar.<br>Gebruik de handmatige overboeking hieronder.</div>';
+    if (c) c.innerHTML = '<div style="color:#888;font-size:12px;padding:16px;text-align:center">\u26a0 QR niet beschikbaar.<br>Gebruik de handmatige overboeking.</div>';
   }
 }
 
-function showBetaalPage(o) {
-  document.getElementById('pay-ref-hero').textContent = 'Referentie: '+o.ref;
-  document.getElementById('pay-amt').textContent = fmt(o.totaal);
-  document.getElementById('pay-sub').textContent = o.aantal+' koek'+(o.aantal>1?'en':'')+' voor '+o.naam;
-  document.getElementById('pay-ref').textContent = '\uD83D\uDCCB Referentie: '+o.ref+' \u2014 bewaar dit!';
-  document.getElementById('pay-amt2').textContent = fmt(o.totaal);
-  document.getElementById('pay-omschr').textContent = o.ref+' \u2013 '+o.naam;
-  showPage('betaal');
-  // Generate EPC QR code after page is shown
-  setTimeout(function() {
-    document.getElementById('qr-amount-disp').textContent = fmt(o.totaal);
-    document.getElementById('qr-ref-disp').textContent = o.ref+' \u2013 '+o.naam;
-    generateEpcQr(settings.iban, DEFAULT_TENAAM, o.totaal, o.ref+' '+o.naam);
-  }, 100);
-}
-
-// ── ADMIN ─────────────────────────────────────────────────────────────────────
+// ── ADMIN LOGIN ───────────────────────────────────────────────────────────────
 function doLogin() {
-  const u = document.getElementById('l-user').value.trim();
-  const p = document.getElementById('l-pass').value;
-  const admin = admins.find(a=>a.username===u && a.password===p);
+  var u = document.getElementById('l-user').value.trim();
+  var p = document.getElementById('l-pass').value;
+  var admin = null;
+  for (var i = 0; i < admins.length; i++) {
+    if (admins[i].username === u && admins[i].password === p) { admin = admins[i]; break; }
+  }
   if (admin) {
     currentAdmin = admin;
-    document.getElementById('admin-login').style.display='none';
-    document.getElementById('admin-panel').style.display='block';
-    document.getElementById('admin-welcome').textContent = '\uD83D\uDD11 '+admin.naam+' \u00B7 '+(admin.role==='super'?'Hoofdbeheerder':'Beheerder');
-    // hide super-only tabs for non-super
-    const hide = admin.role !== 'super';
-    document.getElementById('tab-btn-beheerders').style.display = hide?'none':'';
-    document.getElementById('tab-btn-instellingen').style.display = hide?'none':'';
-    document.getElementById('tab-btn-meldingen').style.display = '';
+    document.getElementById('admin-login').style.display = 'none';
+    document.getElementById('admin-panel').style.display = 'block';
+    document.getElementById('admin-welcome').textContent = '\ud83d\udd11 ' + admin.naam + ' \u00b7 ' + (admin.role === 'super' ? 'Hoofdbeheerder' : 'Beheerder');
+    var hide = admin.role !== 'super';
+    var bhEl = document.getElementById('tab-btn-beheerders');
+    var insEl = document.getElementById('tab-btn-instellingen');
+    if (bhEl)  bhEl.style.display  = hide ? 'none' : '';
+    if (insEl) insEl.style.display = hide ? 'none' : '';
     renderAdminPanel();
     loadSettingsForm();
   } else {
-    document.getElementById('login-err').style.display='block';
+    document.getElementById('login-err').style.display = 'block';
   }
 }
 
 function doLogout() {
-  currentAdmin=null;
-  document.getElementById('admin-login').style.display='block';
-  document.getElementById('admin-panel').style.display='none';
-  document.getElementById('l-user').value='';
-  document.getElementById('l-pass').value='';
-  document.getElementById('login-err').style.display='none';
+  currentAdmin = null;
+  document.getElementById('admin-login').style.display  = 'block';
+  document.getElementById('admin-panel').style.display  = 'none';
+  document.getElementById('l-user').value = '';
+  document.getElementById('l-pass').value = '';
+  document.getElementById('login-err').style.display = 'none';
 }
 
+// ── ADMIN TABS ────────────────────────────────────────────────────────────────
 function showTab(t) {
-  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'));
-  document.getElementById('tab-'+t).classList.add('active');
-  event.target.classList.add('active');
-  if(t==='bestellingen') renderOrders();
-  if(t==='beheerders') renderAdmins();
-  if(t==='meldingen') renderMeldingen();
-  if(t==='export') { updateExportInfo(); buildMaandFilterBtns(); }
+  var contents = document.querySelectorAll('.tab-content');
+  for (var i = 0; i < contents.length; i++) contents[i].classList.remove('active');
+  var tabBtns = document.querySelectorAll('.tab-btn');
+  for (var i = 0; i < tabBtns.length; i++) tabBtns[i].classList.remove('active');
+  var tc = document.getElementById('tab-' + t);
+  if (tc) tc.classList.add('active');
+  if (event && event.target) event.target.classList.add('active');
+  if (t === 'bestellingen') renderOrders();
+  if (t === 'beheerders')   renderAdmins();
+  if (t === 'meldingen')    renderMeldingen();
+  if (t === 'export')       { updateExportInfo(); buildMaandFilterBtns(); }
 }
 
 function setFilter(f, btn) {
-  currentFilter=f;
-  document.querySelectorAll('#tab-bestellingen .tab-btn').forEach(el=>el.classList.remove('active'));
-  btn.classList.add('active');
+  currentFilter = f;
+  var filterBtns = document.querySelectorAll('#tab-bestellingen .tab-btn');
+  for (var i = 0; i < filterBtns.length; i++) filterBtns[i].classList.remove('active');
+  if (btn) btn.classList.add('active');
   renderOrders();
+}
+
+// ── STATS & CALCULATIONS ──────────────────────────────────────────────────────
+function calcStats() {
+  var paid   = orders.filter(function(o){ return o.betaald; });
+  var unpaid = orders.filter(function(o){ return !o.betaald; });
+  var totK   = orders.reduce(function(s,o){ return s + o.aantal; }, 0);
+  var totO   = orders.reduce(function(s,o){ return s + o.totaal; }, 0);
+  var totP   = paid.reduce(function(s,o){ return s + o.totaal; }, 0);
+  var totKP  = paid.reduce(function(s,o){ return s + o.aantal; }, 0);
+  return {
+    paid: paid, unpaid: unpaid,
+    totK: totK, totO: totO, totP: totP, totKP: totKP,
+    clubkas: totKP * ENTAC_PER_KOEK,
+    inkoop:  totKP * INKOOP_PER_KOEK
+  };
+}
+
+function updateStats() {
+  var st = calcStats();
+  var set = function(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
+  set('s-koeken', st.totK);
+  set('s-orders', st.paid.length + st.unpaid.length + ' bestellingen');
+  set('s-omzet',  fmt(st.totO));
+  set('s-betaald', st.paid.length + ' betaald');
+  set('s-clubkas', fmt(st.clubkas));
+  set('s-inkoop',  fmt(st.inkoop));
+  set('f-omzet',     fmt(st.totO));
+  set('f-ontvangen', fmt(st.totP));
+  set('f-open',      fmt(st.totO - st.totP));
+  set('f-clubkas',   fmt(st.clubkas));
+  set('f-inkoop',    fmt(st.inkoop));
+  set('s-badge-betaald', st.paid.length + ' betaald');
+  set('s-badge-open',    st.unpaid.length + ' openstaand');
+  set('s-badge-koeken',  st.totK + ' koeken');
+  // rapport
+  set('pr-datum',     today());
+  set('pr-orders',    orders.length);
+  set('pr-koeken',    st.totK);
+  set('pr-omzet',     fmt(st.totO));
+  set('pr-ontvangen', fmt(st.totP));
+  set('pr-open',      fmt(st.totO - st.totP));
+  set('pr-clubkas',   fmt(st.clubkas));
+  set('pr-inkoop',    fmt(st.inkoop));
+}
+
+function updateExportInfo() {
+  var st = calcStats();
+  var el = document.getElementById('export-info');
+  if (el) el.textContent = orders.length + ' bestellingen \u00b7 ' + st.totK + ' koeken';
 }
 
 function renderAdminPanel() {
@@ -821,273 +911,119 @@ function renderAdminPanel() {
   updateStats();
   renderOrders();
   updateExportInfo();
+  updateBulkInfo();
 }
 
-function calcStats() {
-  const paid    = orders.filter(o=>o.betaald);
-  const unpaid  = orders.filter(o=>!o.betaald);
-  const totK    = orders.reduce((s,o)=>s+o.aantal, 0);
-  const totO    = orders.reduce((s,o)=>s+o.totaal, 0);
-  const totP    = paid.reduce((s,o)=>s+o.totaal, 0);
-  const totKP   = paid.reduce((s,o)=>s+o.aantal, 0);  // betaalde koeken
-  const inkoop  = totKP * INKOOP_PER_KOEK;
-  const clubkas = totKP * ENTAC_PER_KOEK;
-  return {paid, unpaid, totK, totO, totP, clubkas, inkoop, totKP};
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+function togglePaid(id) {
+  for (var i = 0; i < orders.length; i++) {
+    if (orders[i].id === id) { orders[i].betaald = !orders[i].betaald; break; }
+  }
+  save(); renderOrders(); updateStats();
 }
-
-function updateStats() {
-  const {paid,unpaid,totK,totO,totP,clubkas,inkoop} = calcStats();
-  document.getElementById('s-koeken').textContent   = totK;
-  document.getElementById('s-orders').textContent   = orders.length+' bestellingen';
-  document.getElementById('s-omzet').textContent    = fmt(totO);
-  document.getElementById('s-betaald').textContent  = paid.length+' betaald';
-  document.getElementById('s-clubkas').textContent  = fmt(clubkas);
-  document.getElementById('s-inkoop').textContent   = fmt(inkoop);
-  document.getElementById('f-omzet').textContent    = fmt(totO);
-  document.getElementById('f-ontvangen').textContent= fmt(totP);
-  document.getElementById('f-open').textContent     = fmt(totO-totP);
-  document.getElementById('f-clubkas').textContent  = fmt(clubkas);
-  document.getElementById('f-inkoop').textContent   = fmt(inkoop);
-  document.getElementById('s-badge-betaald').textContent = paid.length+' betaald';
-  document.getElementById('s-badge-open').textContent    = unpaid.length+' openstaand';
-  document.getElementById('s-badge-koeken').textContent  = totK+' koeken';
-  // rapport
-  const d = today();
-  document.getElementById('pr-datum').textContent    = d;
-  document.getElementById('pr-orders').textContent   = orders.length;
-  document.getElementById('pr-koeken').textContent   = totK;
-  document.getElementById('pr-omzet').textContent    = fmt(totO);
-  document.getElementById('pr-ontvangen').textContent= fmt(totP);
-  document.getElementById('pr-open').textContent     = fmt(totO-totP);
-  document.getElementById('pr-clubkas').textContent  = fmt(clubkas);
-  document.getElementById('pr-inkoop').textContent   = fmt(inkoop);
-}
-
-function updateExportInfo() {
-  const {totK} = calcStats();
-  document.getElementById('export-info').textContent = orders.length+' bestellingen \u00B7 '+totK+' koeken';
-}
-
 
 function deleteOrder(id) {
-  var o = orders.find(function(x){ return x.id===id; });
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
   if (!o) return;
-  var waarschuwing = o.betaald
-    ? 'LET OP: deze bestelling is al BETAALD!\n\nToch verwijderen: '+o.naam+' | '+fmt(o.totaal)+'?'
-    : 'Bestelling verwijderen?\n\n'+o.naam+' | '+o.aantal+' koek'+(o.aantal>1?'en':'')+' | '+fmt(o.totaal)+'\n\nDit kan niet ongedaan worden gemaakt.';
-  if (!confirm(waarschuwing)) return;
-  orders = orders.filter(function(x){ return x.id!==id; });
-  save();
-  renderOrders();
-  updateStats();
-}
-
-function togglePaid(id) {
-  const o = orders.find(x=>x.id===id);
-  if (o) { o.betaald=!o.betaald; save(); renderOrders(); updateStats(); }
+  var msg = o.betaald
+    ? 'LET OP: bestelling is al BETAALD!\n\nToch verwijderen: ' + o.naam + ' | ' + fmt(o.totaal) + '?'
+    : 'Bestelling verwijderen?\n\n' + o.naam + ' | ' + o.aantal + ' koek' + (o.aantal>1?'en':'') + ' | ' + fmt(o.totaal) + '\n\nDit kan niet ongedaan worden gemaakt.';
+  if (!confirm(msg)) return;
+  orders = orders.filter(function(x){ return x.id !== id; });
+  save(); renderOrders(); updateStats();
 }
 
 function renderOrders() {
   if (!currentAdmin) return;
-  const canEdit = currentAdmin.role==='super'||currentAdmin.role==='editor';
-  const list = currentFilter==='betaald' ? orders.filter(o=>o.betaald) :
-               currentFilter==='open'    ? orders.filter(o=>!o.betaald) : orders;
-  const el = document.getElementById('orders-list');
-  if (!list.length) { el.innerHTML='<div style="text-align:center;padding:32px;color:#999999">🍪 Geen bestellingen</div>'; return; }
-  el.innerHTML = list.map(function(o) {
-    var entacBedrag = (o.aantal * ENTAC_PER_KOEK).toFixed(2).replace('.',',');
-    var inkoopBedrag = (o.aantal * INKOOP_PER_KOEK).toFixed(2).replace('.',',');
-    var betaaldBadge = o.betaald ? '<span class="badge-ok">Betaald</span>' : '<span class="badge-err">Open</span>';
-    var winst = o.betaald ? '<div style="font-size:11px;color:#22c55e;margin-top:4px">ENTAC: &euro;&nbsp;'+entacBedrag+' &nbsp;|&nbsp; Inkoop: &euro;&nbsp;'+inkoopBedrag+'</div>' : '';
-    var delBtn = canEdit ? '<button class="btn-sm" style="background:#2a0000;color:#ff6b6b;border:1px solid #ff6b6b55;margin-left:4px" onclick="deleteOrder('+o.id+')">&#x1F5D1;</button>' : '';
-    var editBtn = canEdit ? '<button class="btn-sm '+(o.betaald?'btn-sm-red':'btn-sm-green')+'" onclick="togglePaid('+o.id+')">'+(o.betaald?'&#x21A9; Ongedaan':'&#x2705; Betaald')+'</button>' : '';
-    var viaStr = o.via ? '<div style="font-size:11px;color:#c9a030;margin-top:3px">&#x1F91D; Via: '+o.via+'</div>' : '';
-    var contact = (o.email||o.tel) ? '<div style="font-size:11px;color:#999;margin-top:4px">'+(o.email?'&#x1F4E7; '+o.email:'')+(o.tel?' &nbsp;&#x1F4DE; '+o.tel:'')+'</div>' : '';
-    return '<div class="order-card">'
-      + '<div class="order-row">'
-      + '<div><div class="order-name">'+o.naam+'</div>'
-      + '<div class="order-meta">'+o.ref+' &nbsp;&middot;&nbsp; '+o.datum+' '+o.tijdstip+'</div></div>'
-      + betaaldBadge
-      + '</div>'
+  var canEdit = currentAdmin.role === 'super' || currentAdmin.role === 'editor';
+  var list = currentFilter === 'betaald' ? orders.filter(function(o){ return o.betaald; })
+           : currentFilter === 'open'    ? orders.filter(function(o){ return !o.betaald; })
+           : orders;
+  var el = document.getElementById('orders-list');
+  if (!el) return;
+  if (!list.length) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#888">\ud83c\udf6a Geen bestellingen</div>'; return; }
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var o = list[i];
+    var ea = (o.aantal * ENTAC_PER_KOEK).toFixed(2).replace('.',',');
+    var badge = o.betaald ? '<span class="badge-ok">Betaald</span>' : '<span class="badge-err">Open</span>';
+    var winst = o.betaald ? '<div style="font-size:11px;color:#22c55e;margin-top:4px">ENTAC: \u20ac\u00a0' + ea + '</div>' : '';
+    var smakenStr = '';
+    if (o.smaken) {
+      smakenStr = '<div style="font-size:11px;color:#888;margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">';
+      if (o.smaken.original  > 0) smakenStr += '<span style="color:#e8892b">\u25cf Original: '  + o.smaken.original  + '</span>';
+      if (o.smaken.kardemom  > 0) smakenStr += '<span style="color:#5a9a3a">\u25cf Kardemom: '  + o.smaken.kardemom  + '</span>';
+      if (o.smaken.cranberry > 0) smakenStr += '<span style="color:#cc4400">\u25cf Cranberry: ' + o.smaken.cranberry + '</span>';
+      smakenStr += '</div>';
+    }
+    var viaStr = o.via ? '<div style="font-size:11px;color:#c9a030;margin-top:3px">\ud83e\udd1d Via: ' + o.via + '</div>' : '';
+    var contact = (o.email || o.tel) ? '<div style="font-size:11px;color:#999;margin-top:4px">' + (o.email ? '\ud83d\udce7 ' + o.email : '') + (o.tel ? ' \u00a0\ud83d\udcde ' + o.tel : '') + '</div>' : '';
+    var editBtn = canEdit ? '<button class="btn-sm ' + (o.betaald ? 'btn-sm-red' : 'btn-sm-green') + '" onclick="togglePaid(' + o.id + ')">' + (o.betaald ? '\u21a9 Ongedaan' : '\u2705 Betaald') + '</button>' : '';
+    var delBtn  = canEdit ? '<button class="btn-sm" style="background:#2a0000;color:#ff6b6b;border:1px solid #ff6b6b55;margin-left:4px" onclick="deleteOrder(' + o.id + ')">\ud83d\uddd1</button>' : '';
+    html += '<div class="order-card">'
+      + '<div class="order-row"><div>'
+      + '<div class="order-name">' + o.naam + '</div>'
+      + '<div class="order-meta">' + o.ref + ' &middot; ' + o.datum + ' ' + o.tijdstip + '</div>'
+      + '</div>' + badge + '</div>'
       + '<div class="order-bottom">'
-      + '<div><span style="color:#999;font-size:13px">'+o.aantal+' koek'+(o.aantal>1?'en':'')+' &middot; </span>'
-      + '<strong style="color:#c9a030;font-size:15px">&euro;&nbsp;'+o.totaal.toFixed(2).replace('.',',')+'</strong></div>'
-      + editBtn
-      + ' '
-      + delBtn
+      + '<div><span style="color:#999;font-size:13px">' + o.aantal + ' koek' + (o.aantal>1?'en':'') + ' &middot; </span>'
+      + '<strong style="color:#c9a030;font-size:15px">' + fmt(o.totaal) + '</strong></div>'
+      + '<div>' + editBtn + delBtn + '</div>'
       + '</div>'
-      + winst
-      + smakenStr
-      + viaStr
-      + contact
+      + smakenStr + winst + viaStr + contact
       + '</div>';
-  }).join('');
+  }
+  el.innerHTML = html;
 }
 
+// ── ADMINS ────────────────────────────────────────────────────────────────────
 function renderAdmins() {
   var el = document.getElementById('admins-list');
-  var rows = admins.map(function(a) {
-    var rolLabel = a.role==='super'?'Hoofdbeheerder':a.role==='editor'?'Editor':'Alleen bekijken';
-    var delBtn = a.role!=='super' ? '<button class="btn-sm btn-sm-red" onclick="removeAdmin('+a.id+')">Verwijder</button>' : '<span style="font-size:11px;color:#555">Niet verwijderbaar</span>';
-    return '<div class="order-card" style="margin-bottom:10px">'
+  if (!el) return;
+  var html = '<div style="font-weight:bold;font-size:14px;color:#c9a030;margin:4px 0 12px">Huidige beheerders (' + admins.length + ')</div>';
+  for (var i = 0; i < admins.length; i++) {
+    var a = admins[i];
+    var rolLabel = a.role==='super' ? 'Hoofdbeheerder' : a.role==='editor' ? 'Editor' : 'Alleen bekijken';
+    var delBtn = a.role !== 'super' ? '<button class="btn-sm btn-sm-red" onclick="removeAdmin(' + a.id + ')">Verwijder</button>' : '<span style="font-size:11px;color:#555">Niet verwijderbaar</span>';
+    html += '<div class="order-card" style="margin-bottom:10px">'
       + '<div style="display:flex;justify-content:space-between;align-items:center">'
-      + '<div><div style="font-weight:bold;font-size:14px;color:#f4f4f4">'+a.naam+'</div>'
-      + '<div style="font-size:12px;color:#888;margin-top:3px">@'+a.username+' &nbsp;&middot;&nbsp; '+rolLabel+'</div></div>'
+      + '<div><div style="font-weight:bold;font-size:14px;color:#f4f4f4">' + a.naam + '</div>'
+      + '<div style="font-size:12px;color:#888;margin-top:3px">@' + a.username + ' &middot; ' + rolLabel + '</div></div>'
       + delBtn + '</div></div>';
-  }).join('');
-  el.innerHTML = '<div style="font-weight:bold;font-size:14px;color:#c9a030;margin:4px 0 12px">Huidige beheerders ('+admins.length+')</div>' + rows;
+  }
+  el.innerHTML = html;
 }
 
 function addAdmin() {
-  const naam = document.getElementById('na-naam').value.trim();
-  const user = document.getElementById('na-user').value.trim();
-  const pass = document.getElementById('na-pass').value;
-  const role = document.getElementById('na-role').value;
-  if (!naam||!user||!pass) return alert('Vul alle velden in.');
-  if (admins.find(a=>a.username===user)) return alert('Gebruikersnaam al in gebruik.');
-  admins.push({id:Date.now(),naam,username:user,password:pass,role});
+  var naam = document.getElementById('na-naam').value.trim();
+  var user = document.getElementById('na-user').value.trim();
+  var pass = document.getElementById('na-pass').value;
+  var role = document.getElementById('na-role').value;
+  if (!naam || !user || !pass) { alert('Vul alle velden in.'); return; }
+  for (var i = 0; i < admins.length; i++) {
+    if (admins[i].username === user) { alert('Gebruikersnaam al in gebruik.'); return; }
+  }
+  admins.push({id: Date.now(), naam: naam, username: user, password: pass, role: role});
   save();
-  document.getElementById('na-naam').value='';
-  document.getElementById('na-user').value='';
-  document.getElementById('na-pass').value='';
+  document.getElementById('na-naam').value = '';
+  document.getElementById('na-user').value = '';
+  document.getElementById('na-pass').value = '';
   renderAdmins();
 }
 
 function removeAdmin(id) {
   if (!confirm('Beheerder verwijderen?')) return;
-  admins = admins.filter(a=>a.id!==id);
+  admins = admins.filter(function(a){ return a.id !== id; });
   save(); renderAdmins();
 }
 
-
-// ── MAAND FILTER EXPORT ────────────────────────────────────────────────────────
-var exportMaandFilter = 'alle';
-var maandNamenExport = ['Januari','Februari','Maart','April','Mei','Juni',
-                        'Juli','Augustus','September','Oktober','November','December'];
-
-function buildMaandFilterBtns() {
-  var container = document.getElementById('maand-filter-btns');
-  if (!container) return;
-
-  // Verzamel alle unieke maand+jaar combinaties uit bestellingen
-  var maanden = {};
-  orders.forEach(function(o) {
-    // datum formaat: d-m-yyyy (nl-NL)
-    var parts = o.datum.split('-');
-    if (parts.length === 3) {
-      var m = parseInt(parts[1]) - 1; // 0-indexed
-      var j = parseInt(parts[2]);
-      var key = j + '-' + m;
-      if (!maanden[key]) maanden[key] = {jaar:j, maand:m, label:maandNamenExport[m]+' '+j};
-    }
-  });
-
-  // Sorteer chronologisch
-  var gesorteerd = Object.values(maanden).sort(function(a,b) {
-    return (a.jaar*12+a.maand) - (b.jaar*12+b.maand);
-  });
-
-  // Bouw knoppen
-  var html = '<button class="tab-btn '+(exportMaandFilter==='alle'?'active':'')+'" onclick="setExportMaand('alle',this)">Alle maanden</button>';
-  gesorteerd.forEach(function(m) {
-    var key = m.jaar+'-'+m.maand;
-    var active = exportMaandFilter === key ? 'active' : '';
-    html += '<button class="tab-btn '+active+'" onclick="setExportMaand(''+key+'',this)">'+m.label+'</button>';
-  });
-  container.innerHTML = html;
-  updateExportFilterInfo();
-}
-
-function setExportMaand(key, btn) {
-  exportMaandFilter = key;
-  document.querySelectorAll('#maand-filter-btns .tab-btn').forEach(function(b) { b.classList.remove('active'); });
-  if (btn) btn.classList.add('active');
-  updateExportFilterInfo();
-  updateExportInfo();
-}
-
-function getFilteredOrders() {
-  if (exportMaandFilter === 'alle') return orders;
-  var parts = exportMaandFilter.split('-');
-  var jaar  = parseInt(parts[0]);
-  var maand = parseInt(parts[1]); // 0-indexed
-  return orders.filter(function(o) {
-    var dp = o.datum.split('-');
-    if (dp.length < 3) return false;
-    return parseInt(dp[1])-1 === maand && parseInt(dp[2]) === jaar;
-  });
-}
-
-function updateExportFilterInfo() {
-  var el = document.getElementById('export-filter-info');
-  if (!el) return;
-  var gefilterd = getFilteredOrders();
-  var betaald = gefilterd.filter(function(o){ return o.betaald; });
-  var totK = gefilterd.reduce(function(s,o){ return s+o.aantal; }, 0);
-  var totO = gefilterd.reduce(function(s,o){ return s+o.totaal; }, 0);
-  if (exportMaandFilter === 'alle') {
-    el.textContent = '';
-  } else {
-    el.innerHTML = '<span style="color:#c9a030">'+gefilterd.length+' bestellingen</span> &nbsp;|&nbsp; '
-      + totK+' koeken &nbsp;|&nbsp; '
-      + '<span style="color:#cc0000">'+fmt(totO)+'</span> totaal &nbsp;|&nbsp; '
-      + '<span style="color:#22c55e">'+betaald.length+' betaald</span>';
-  }
-}
-
-// ── EXPORT ────────────────────────────────────────────────────────────────────
-function exportExcel(type) {
-  if (!window.XLSX) { alert("Excel export niet beschikbaar. Open de pagina in Safari of Chrome."); return; }
-  var exportOrders = getFilteredOrders();
-  var periodeLabel = exportMaandFilter === 'alle' ? 'Alle maanden' : (function(){
-    var p = exportMaandFilter.split('-');
-    return maandNamenExport[parseInt(p[1])]+' '+p[0];
-  })();
-  const {totK,totO,totP,clubkas,inkoop} = calcStats();
-  const wb = XLSX.utils.book_new();
-
-  // Sheet 1: Bestellingen
-  const r1 = [["Referentie","Naam","Email","Telefoon","Aantal koeken","Totaal (€)","Datum","Betaald"]];
-  orders.forEach(o=>r1.push([o.ref,o.naam,o.email,o.tel||'',o.aantal,o.totaal.toFixed(2),o.datum,o.betaald?'Ja':'Nee']));
-  const ws1 = XLSX.utils.aoa_to_sheet(r1);
-  ws1['!cols']=[13,18,22,13,18,10,10,10,10,11,11,10].map(w=>({wch:w}));
-  XLSX.utils.book_append_sheet(wb, ws1, 'Bestellingen');
-
-  // Sheet 2: Leverancierslijst
-  const r2 = [["Naam","Aantal koeken"]];
-  orders.forEach(o=>r2.push([o.naam,o.aantal]));
-  r2.push([],['TOTAAL KOEKEN',totK]);
-  const ws2 = XLSX.utils.aoa_to_sheet(r2);
-  ws2['!cols']=[{wch:24},{wch:16}];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Leverancierslijst');
-
-  // Sheet 3: Financieel
-  const r3 = [
-    ['Financieel Overzicht – TTV ENTAC Vondelkoeken Actie'],
-    ['Datum rapport', today()],[],
-    ['Totaal bestellingen', orders.length],
-    ['Totaal koeken besteld', totK],
-    ['Totale omzet (alle)', '€ '+totO.toFixed(2)],
-    ['Ontvangen (betaald)', '€ '+totP.toFixed(2)],
-    ['Openstaand', '€ '+(totO-totP).toFixed(2)],[],
-    ['VERDELING VAN ONTVANGEN BEDRAG'],
-    ['ENTAC winst', '€ '+clubkas.toFixed(2)],
-    ['Inkoop leverancier 40%', '€ '+inkoop.toFixed(2)],
-  ];
-  const ws3 = XLSX.utils.aoa_to_sheet(r3);
-  ws3['!cols']=[{wch:36},{wch:20}];
-  XLSX.utils.book_append_sheet(wb, ws3, 'Financieel');
-
-  XLSX.writeFile(wb, 'entac-vondelkoeken-'+today().replace(/\//g,'-')+'.xlsx');
-}
-
-// ── MELDINGEN ──────────────────────────────────────────────────────────────────
-let meldFilter = 'alle';
-
+// ── MELDINGEN ─────────────────────────────────────────────────────────────────
 function setMeldFilter(f, btn) {
   meldFilter = f;
-  document.querySelectorAll('#tab-meldingen .tab-btn').forEach(el=>el.classList.remove('active'));
-  btn.classList.add('active');
+  var btns = document.querySelectorAll('#tab-meldingen .tab-btn');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btn) btn.classList.add('active');
   renderMeldingen();
 }
 
@@ -1100,171 +1036,237 @@ function getMeldingTekst(o) {
 }
 
 function markGemeld(id, status) {
-  const o = orders.find(x => x.id === id);
-  if (o) { o.gemeld = status; save(); renderMeldingen(); updateBulkInfo(); }
+  for (var i = 0; i < orders.length; i++) {
+    if (orders[i].id === id) { orders[i].gemeld = status; break; }
+  }
+  save(); renderMeldingen(); updateBulkInfo();
 }
 
 function sendWhatsApp(id) {
-  const o = orders.find(x => x.id === id);
-  if (!o || !o.tel) return alert('Geen telefoonnummer bekend voor deze klant.');
-  const tel = o.tel.replace(/\D/g, '');
-  const intTel = tel.startsWith('0') ? '31' + tel.substring(1) : tel;
-  const tekst = encodeURIComponent(getMeldingTekst(o));
-  window.open('https://wa.me/'+intTel+'?text='+tekst, '_blank');
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !o.tel) { alert('Geen telefoonnummer bekend.'); return; }
+  var tel = o.tel.replace(/\D/g, '');
+  var intTel = tel.startsWith('0') ? '31' + tel.substring(1) : tel;
+  window.open('https://wa.me/' + intTel + '?text=' + encodeURIComponent(getMeldingTekst(o)), '_blank');
   markGemeld(id, true);
 }
 
 function sendEmail(id) {
-  const o = orders.find(x => x.id === id);
-  if (!o || !o.email) return alert('Geen e-mailadres bekend voor deze klant.');
-  const sub = encodeURIComponent('Je Vondelkoeken zijn binnen! 🍪');
-  const body = encodeURIComponent(getMeldingTekst(o));
-
-  // Try EmailJS first if configured
-  if (settings.emailjsServiceId && settings.emailjsTemplateId && settings.emailjsPublicKey && typeof emailjs !== 'undefined') {
-    if(typeof emailjs !== "undefined") emailjs.init(settings.emailjsPublicKey);
-    emailjs.send(settings.emailjsServiceId, settings.emailjsTemplateId, {
-      to_name: o.naam, to_email: o.email,
-      aantal: o.aantal, ref: o.ref,
-      bericht: getMeldingTekst(o)
-    }).then(() => {
-      markGemeld(id, true);
-      alert('E-mail verstuurd naar '+o.naam+'!');
-    }).catch(err => {
-      alert('E-mail mislukt: ' + err.text + '\nMailto wordt geopend als alternatief.');
-      window.location.href = 'mailto:'+o.email+'?subject='+sub+'&body='+body;
-    });
-  } else {
-    window.location.href = 'mailto:'+o.email+'?subject='+sub+'&body='+body;
-    markGemeld(id, true);
-  }
+  var o = null;
+  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  if (!o || !o.email) { alert('Geen e-mailadres bekend.'); return; }
+  var sub  = encodeURIComponent('Je Vondelkoeken zijn binnen! \ud83c\udf6a');
+  var body = encodeURIComponent(getMeldingTekst(o));
+  window.location.href = 'mailto:' + o.email + '?subject=' + sub + '&body=' + body;
+  markGemeld(id, true);
 }
 
 function openBulkWhatsApp() {
-  const pending = orders.filter(o => !o.gemeld && o.tel);
-  if (!pending.length) { alert('Iedereen is al gemeld, of er zijn geen telefoonnummers bekend.'); return; }
-  let i = 0;
+  var pending = orders.filter(function(o){ return !o.gemeld && o.tel; });
+  if (!pending.length) { alert('Iedereen is al gemeld, of er zijn geen telefoonnummers.'); return; }
+  if (!confirm('WhatsApp ronde starten voor ' + pending.length + ' klant' + (pending.length > 1 ? 'en' : '') + '?')) return;
+  var i = 0;
   function next() {
-    if (i >= pending.length) { alert('✅ WhatsApp ronde klaar!'); renderMeldingen(); return; }
-    const o = pending[i++];
-    const tel = o.tel.replace(/\D/g,'');
-    const intTel = tel.startsWith('0') ? '31'+tel.substring(1) : tel;
-    const tekst = encodeURIComponent(getMeldingTekst(o));
-    window.open('https://wa.me/'+intTel+'?text='+tekst, '_blank');
+    if (i >= pending.length) { renderMeldingen(); updateBulkInfo(); alert('Alle klanten gemeld!'); return; }
+    var o = pending[i++];
+    var tel = o.tel.replace(/\D/g,'');
+    var intTel = tel.startsWith('0') ? '31' + tel.substring(1) : tel;
+    window.open('https://wa.me/' + intTel + '?text=' + encodeURIComponent(getMeldingTekst(o)), '_blank');
     o.gemeld = true; save();
     if (i < pending.length) {
-      setTimeout(function() { if (confirm('Bericht verstuurd aan '+o.naam+'. Volgende: '+pending[i].naam+'?')) next(); else { renderMeldingen(); updateBulkInfo(); } }, 500);
-    } else { renderMeldingen(); updateBulkInfo(); alert('✅ Alle klanten gemeld!'); }
+      setTimeout(function() {
+        if (confirm('Bericht verstuurd aan ' + pending[i-1].naam + '. Volgende: ' + pending[i].naam + '?')) next();
+        else { renderMeldingen(); updateBulkInfo(); }
+      }, 500);
+    } else { renderMeldingen(); updateBulkInfo(); alert('Alle klanten gemeld!'); }
   }
-  if (confirm('WhatsApp ronde starten voor '+pending.length+' klant'+(pending.length>1?'en':'')+'?')) next();
+  next();
 }
 
 function updateBulkInfo() {
-  const pending = orders.filter(o => !o.gemeld);
-  document.getElementById('bulk-info').textContent = pending.length+' klant'+(pending.length!==1?'en':'')+' nog te melden';
+  var pending = orders.filter(function(o){ return !o.gemeld; });
+  var el = document.getElementById('bulk-info');
+  if (el) el.textContent = pending.length + ' klant' + (pending.length !== 1 ? 'en' : '') + ' nog te melden';
 }
 
 function renderMeldingen() {
   updateBulkInfo();
-  const list = meldFilter === 'open'   ? orders.filter(o => !o.gemeld) :
-               meldFilter === 'gemeld' ? orders.filter(o => o.gemeld)  : orders;
-  const el = document.getElementById('meldingen-list');
-  if (!list.length) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#999999">🍪 Geen bestellingen in dit filter</div>'; return; }
-  el.innerHTML = list.map(function(o) {
-    var borderColor = o.gemeld ? '#22c55e' : '#cc0000';
-    var badge = o.gemeld ? '<span class="badge-ok">Gemeld</span>' : '<span class="badge-err">Te melden</span>';
-    var viaRow   = o.via   ? '<div class="order-meta" style="color:#c9a030">&#x1F91D; Via: '+o.via+'</div>' : '';
-    var emailRow = o.email ? '<div class="order-meta">&#x1F4E7; '+o.email+'</div>' : '';
-    var telRow   = o.tel   ? '<div class="order-meta">&#x1F4DE; '+o.tel+'</div>' : '';
-    var noContact = (!o.email && !o.tel) ? '<div class="order-meta" style="color:#ff4444">&#x26A0; Geen contactgegevens</div>' : '';
-    var waBtn  = o.tel   ? '<button class="btn-sm btn-sm-green" onclick="sendWhatsApp('+o.id+')">&#x1F4F2; WhatsApp</button>' : '<span style="font-size:11px;color:#666">Geen telefoon</span>';
-    var mailBtn= o.email ? '<button class="btn-sm btn-sm-amber" onclick="sendEmail('+o.id+')">&#x1F4E7; E-mail</button>' : '';
-    var markBtn= '<button class="btn-sm '+(o.gemeld?'btn-sm-red':'btn-sm-dark')+'" onclick="markGemeld('+o.id+','+ !o.gemeld+')">'+(o.gemeld?'&#x21A9; Ongedaan':'&#x2713; Markeer gemeld')+'</button>';
-    return '<div class="order-card" style="border-left:4px solid '+borderColor+'">'
+  var list = meldFilter === 'open'   ? orders.filter(function(o){ return !o.gemeld; })
+           : meldFilter === 'gemeld' ? orders.filter(function(o){ return o.gemeld;  })
+           : orders;
+  var el = document.getElementById('meldingen-list');
+  if (!el) return;
+  if (!list.length) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#888">\ud83c\udf6a Geen bestellingen</div>'; return; }
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var o = list[i];
+    var bc   = o.gemeld ? '#22c55e' : '#cc0000';
+    var badge= o.gemeld ? '<span class="badge-ok">Gemeld</span>' : '<span class="badge-err">Te melden</span>';
+    var viaR = o.via   ? '<div class="order-meta" style="color:#c9a030">\ud83e\udd1d Via: ' + o.via + '</div>' : '';
+    var emlR = o.email ? '<div class="order-meta">\ud83d\udce7 ' + o.email + '</div>' : '';
+    var telR = o.tel   ? '<div class="order-meta">\ud83d\udcde ' + o.tel + '</div>' : '';
+    var noC  = (!o.email && !o.tel) ? '<div class="order-meta" style="color:#ff4444">\u26a0 Geen contactgegevens</div>' : '';
+    var waBtn   = o.tel   ? '<button class="btn-sm btn-sm-green" onclick="sendWhatsApp(' + o.id + ')">\ud83d\udcf2 WhatsApp</button>' : '<span style="font-size:11px;color:#666">Geen telefoon</span>';
+    var mailBtn = o.email ? '<button class="btn-sm btn-sm-amber" onclick="sendEmail(' + o.id + ')">\ud83d\udce7 E-mail</button>' : '';
+    var markBtn = '<button class="btn-sm ' + (o.gemeld ? 'btn-sm-red' : 'btn-sm-dark') + '" onclick="markGemeld(' + o.id + ',' + !o.gemeld + ')">' + (o.gemeld ? '\u21a9 Ongedaan' : '\u2713 Gemeld') + '</button>';
+    html += '<div class="order-card" style="border-left:4px solid ' + bc + '">'
       + '<div class="order-row"><div>'
-      + '<div class="order-name">'+o.naam+'</div>'
-      + '<div class="order-meta">'+o.ref+' &middot; '+o.aantal+' koek'+(o.aantal>1?'en':'')+' &middot; '+o.datum+'</div>'
-      + viaRow + emailRow + telRow + noContact
+      + '<div class="order-name">' + o.naam + '</div>'
+      + '<div class="order-meta">' + o.ref + ' &middot; ' + o.aantal + ' koek' + (o.aantal>1?'en':'') + ' &middot; ' + o.datum + '</div>'
+      + viaR + emlR + telR + noC
       + '</div>' + badge + '</div>'
       + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
       + waBtn + ' ' + mailBtn + ' ' + markBtn
       + '</div></div>';
-  }).join('');;
+  }
+  el.innerHTML = html;
 }
 
-
-
-// ── BESTELPERIODE BANNER ───────────────────────────────────────────────────────
-function updateBestelperiodeBanner() {
-  var now = new Date();
-  var jaar = now.getFullYear();
-  var maand = now.getMonth(); // 0-indexed
-  var dag = now.getDate();
-
-  var maandNamen = ['januari','februari','maart','april','mei','juni',
-                    'juli','augustus','september','oktober','november','december'];
-
-  // Laatste dag van huidige maand
-  var laatsteDag = new Date(jaar, maand + 1, 0).getDate();
-
-  // Huidige periode: 1 t/m laatste dag van deze maand
-  var periodeStart = '1 ' + maandNamen[maand];
-  var periodeEind  = laatsteDag + ' ' + maandNamen[maand] + ' ' + jaar;
-
-  // Volgende bestelling: eerste week van volgende maand
-  var volgendeMaand = maand === 11 ? 0 : maand + 1;
-  var volgendJaar   = maand === 11 ? jaar + 1 : jaar;
-
-  var titelEl   = document.getElementById('bestel-periode-titel');
-  var tekstEl   = document.getElementById('bestel-periode-tekst');
-  var deadlineEl= document.getElementById('bestel-deadline');
-
-  if (!titelEl) return;
-
-  titelEl.textContent   = 'Bestelperiode ' + maandNamen[maand].charAt(0).toUpperCase() + maandNamen[maand].slice(1) + ' ' + jaar;
-  tekstEl.textContent   = 'Bestel van ' + periodeStart + ' t/m ' + periodeEind;
-  deadlineEl.textContent= '\u23F0 Bestelling naar bakkerij: week 1 van ' + maandNamen[volgendeMaand] + ' ' + volgendJaar;
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+function buildMaandFilterBtns() {
+  var container = document.getElementById('maand-filter-btns');
+  if (!container) return;
+  var maanden = {};
+  for (var i = 0; i < orders.length; i++) {
+    var parts = orders[i].datum.split('-');
+    if (parts.length === 3) {
+      var m = parseInt(parts[1]) - 1;
+      var j = parseInt(parts[2]);
+      var key = j + '-' + m;
+      if (!maanden[key]) maanden[key] = {jaar:j, maand:m, label:maandNamenExport[m]+' '+j, key:key};
+    }
+  }
+  var gesorteerd = Object.values(maanden).sort(function(a,b){ return (a.jaar*12+a.maand)-(b.jaar*12+b.maand); });
+  var html = '<button class="tab-btn ' + (exportMaandFilter==='alle'?'active':'') + '" onclick="setExportMaand(\'alle\',this)">Alle maanden</button>';
+  for (var i = 0; i < gesorteerd.length; i++) {
+    var item = gesorteerd[i];
+    html += '<button class="tab-btn ' + (exportMaandFilter===item.key?'active':'') + '" onclick="setExportMaand(\'' + item.key + '\',this)">' + item.label + '</button>';
+  }
+  container.innerHTML = html;
+  updateExportFilterInfo();
 }
 
-// ── GEHEIME BEHEER TOEGANG ────────────────────────────────────────────────────
-let logoTapCount = 0;
-let logoTapTimer = null;
+function setExportMaand(key, btn) {
+  exportMaandFilter = key;
+  var btns = document.querySelectorAll('#maand-filter-btns .tab-btn');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btn) btn.classList.add('active');
+  updateExportFilterInfo();
+  updateExportInfo();
+}
+
+function getFilteredOrders() {
+  if (exportMaandFilter === 'alle') return orders;
+  var parts = exportMaandFilter.split('-');
+  var jaar  = parseInt(parts[0]);
+  var maand = parseInt(parts[1]);
+  return orders.filter(function(o) {
+    var dp = o.datum.split('-');
+    return dp.length >= 3 && parseInt(dp[1])-1 === maand && parseInt(dp[2]) === jaar;
+  });
+}
+
+function updateExportFilterInfo() {
+  var el = document.getElementById('export-filter-info');
+  if (!el) return;
+  if (exportMaandFilter === 'alle') { el.textContent = ''; return; }
+  var gefilterd = getFilteredOrders();
+  var betaald = gefilterd.filter(function(o){ return o.betaald; });
+  var totK = gefilterd.reduce(function(s,o){ return s+o.aantal; }, 0);
+  var totO = gefilterd.reduce(function(s,o){ return s+o.totaal; }, 0);
+  el.innerHTML = '<span style="color:#c9a030">' + gefilterd.length + ' bestellingen</span> &nbsp;|&nbsp; ' + totK + ' koeken &nbsp;|&nbsp; <span style="color:#cc0000">' + fmt(totO) + '</span> totaal &nbsp;|&nbsp; <span style="color:#22c55e">' + betaald.length + ' betaald</span>';
+}
+
+function exportExcel(type) {
+  if (!window.XLSX) { alert('Excel export niet beschikbaar. Open de pagina in Chrome of Safari.'); return; }
+  var exportOrders = getFilteredOrders();
+  var periodeLabel = exportMaandFilter === 'alle' ? 'Alle maanden' : (function(){ var p = exportMaandFilter.split('-'); return maandNamenExport[parseInt(p[1])] + ' ' + p[0]; })();
+  var totK2  = exportOrders.reduce(function(s,o){ return s+o.aantal; }, 0);
+  var totO2  = exportOrders.reduce(function(s,o){ return s+o.totaal; }, 0);
+  var paidO  = exportOrders.filter(function(o){ return o.betaald; });
+  var totP2  = paidO.reduce(function(s,o){ return s+o.totaal; }, 0);
+  var totKP2 = paidO.reduce(function(s,o){ return s+o.aantal; }, 0);
+  var clubkas2 = totKP2 * ENTAC_PER_KOEK;
+  var inkoop2  = totKP2 * INKOOP_PER_KOEK;
+  var wb = XLSX.utils.book_new();
+
+  if (type === 'leverancier') {
+    var r1 = [['Naam besteller','Via wie','Original','Kardemom','Cranberry','Totaal koeken']];
+    for (var i = 0; i < exportOrders.length; i++) {
+      var o = exportOrders[i];
+      r1.push([o.naam, o.via||'', (o.smaken&&o.smaken.original)||0, (o.smaken&&o.smaken.kardemom)||0, (o.smaken&&o.smaken.cranberry)||0, o.aantal]);
+    }
+    r1.push([]);
+    r1.push(['TOTAAL','', exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.original)||0);},0), exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.kardemom)||0);},0), exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.cranberry)||0);},0), totK2]);
+    var ws1 = XLSX.utils.aoa_to_sheet(r1);
+    ws1['!cols'] = [{wch:22},{wch:20},{wch:12},{wch:12},{wch:12},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Bestelling Leverancier');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([XLSX.write(wb, {bookType:'xlsx',type:'array'})], {type:'application/octet-stream'}));
+    a.download = 'entac-leverancier-' + (exportMaandFilter==='alle'?'alle':exportMaandFilter) + '.xlsx';
+    a.click();
+  } else {
+    var r1 = [['Referentie','Naam','Email','Telefoon','Via wie','Original','Kardemom','Cranberry','Totaal','Totaal (\u20ac)','Datum','Betaald']];
+    for (var i = 0; i < exportOrders.length; i++) {
+      var o = exportOrders[i];
+      r1.push([o.ref, o.naam, o.email, o.tel||'', o.via||'', (o.smaken&&o.smaken.original)||0, (o.smaken&&o.smaken.kardemom)||0, (o.smaken&&o.smaken.cranberry)||0, o.aantal, o.totaal.toFixed(2), o.datum, o.betaald?'Ja':'Nee']);
+    }
+    var ws1 = XLSX.utils.aoa_to_sheet(r1);
+    ws1['!cols'] = [13,18,22,13,18,10,10,10,8,11,11,10].map(function(w){return{wch:w};});
+    XLSX.utils.book_append_sheet(wb, ws1, 'Bestellingen');
+
+    var r2 = [['Naam','Aantal koeken']];
+    for (var i = 0; i < exportOrders.length; i++) r2.push([exportOrders[i].naam, exportOrders[i].aantal]);
+    r2.push([]); r2.push(['TOTAAL KOEKEN', totK2]);
+    var ws2 = XLSX.utils.aoa_to_sheet(r2);
+    ws2['!cols'] = [{wch:24},{wch:16}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Leverancierslijst');
+
+    var r3 = [
+      ['Financieel Overzicht \u2013 TTV ENTAC Vondelkoeken Actie'],
+      ['Periode', periodeLabel], ['Datum rapport', today()], [],
+      ['Totaal bestellingen', exportOrders.length], ['Totaal koeken', totK2],
+      ['Totale omzet', '\u20ac ' + totO2.toFixed(2)],
+      ['Ontvangen (betaald)', '\u20ac ' + totP2.toFixed(2)],
+      ['Openstaand', '\u20ac ' + (totO2-totP2).toFixed(2)], [],
+      ['ENTAC winst (\u20ac 2,48/koek)', '\u20ac ' + clubkas2.toFixed(2)],
+      ['Inkoop leverancier (\u20ac 3,52/koek)', '\u20ac ' + inkoop2.toFixed(2)]
+    ];
+    var ws3 = XLSX.utils.aoa_to_sheet(r3);
+    ws3['!cols'] = [{wch:36},{wch:20}];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Financieel');
+
+    XLSX.writeFile(wb, 'entac-vondelkoeken-' + (exportMaandFilter==='alle'?'alle-maanden':exportMaandFilter) + '.xlsx');
+  }
+}
+
+// ── SECRET ADMIN ACCESS ───────────────────────────────────────────────────────
+var logoTapCount = 0;
+var logoTapTimer = null;
 
 function logoTap() {
   logoTapCount++;
   clearTimeout(logoTapTimer);
   if (logoTapCount >= 5) {
     logoTapCount = 0;
-    revealAdmin();
-  } else {
-    logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
-  }
-}
-
-function revealAdmin() {
-  const btn = document.getElementById('secret-admin-btn');
-  if (btn) {
-    btn.style.display = 'inline-block';
-    btn.style.animation = 'fadeIn 0.4s ease';
-    setTimeout(function() { btn.style.display = 'none'; showPage('admin'); }, 600);
-  } else {
     showPage('admin');
+  } else {
+    logoTapTimer = setTimeout(function(){ logoTapCount = 0; }, 2000);
   }
 }
 
-// Geheime URL hash: voeg #beheer toe aan de link voor admins
 function checkSecretHash() {
   if (window.location.hash === '#beheer' || window.location.hash === '#admin') {
-    // Verwijder hash zonder pagina reload
     history.replaceState(null, '', window.location.pathname);
-    setTimeout(() => showPage('admin'), 300);
+    setTimeout(function(){ showPage('admin'); }, 300);
   }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 applySettings();
 checkSecretHash();
-updateBestelperiodeBanner();
+updateTotaalDisplay();
 </script>
 </body>
 </html>
