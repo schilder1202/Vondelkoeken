@@ -287,13 +287,13 @@ Elke koek kost €6,-. Na je bestelling ontvang je betaalinstructies. Vragen? Ma
 
     <div class="card">
       <div class="card-title">🏦 Liever handmatig overboeken?</div>
-      <div class="iban-row"><span style="color:#999999">IBAN</span><strong id="pay-iban">NL16 ABNA 0592 1386 15</strong></div>
-      <div class="iban-row"><span style="color:#999999">Naam</span><strong>ENTAC</strong></div>
-      <div class="iban-row"><span style="color:#999999">Bedrag</span><strong style="color:#cc0000" id="pay-amt2">€ 0,00</strong></div>
-      <div class="iban-row"><span style="color:#999999">Omschrijving</span><strong id="pay-omschr"></strong></div>
+      <div class="iban-row" style="border-color:#eee"><span style="color:#666">IBAN</span><strong style="color:#111;font-size:15px" id="pay-iban">NL16 ABNA 0592 1386 15</strong></div>
+      <div class="iban-row" style="border-color:#eee"><span style="color:#666">Naam</span><strong style="color:#111;font-size:15px">ENTAC</strong></div>
+      <div class="iban-row" style="border-color:#eee"><span style="color:#666">Bedrag</span><strong style="color:#cc0000;font-size:17px;font-weight:bold" id="pay-amt2">€ 0,00</strong></div>
+      <div class="iban-row" style="border-color:#eee"><span style="color:#666">Omschrijving</span><strong style="color:#111;font-size:14px" id="pay-omschr"></strong></div>
       <p style="font-size:12px;color:#999999;margin-top:10px;line-height:1.6">⚠️ Vermeld altijd je <strong>referentie en naam</strong> in de omschrijving.</p>
     </div>
-    <a id="wa-link" href="#" target="_blank" class="btn-green">📲 Stuur WhatsApp bevestiging</a>
+
     <button class="btn-out" onclick="showPage('home')">← Nieuwe bestelling</button>
   </div>
 </div>
@@ -608,6 +608,7 @@ function placeOrder() {
 
   setTimeout(function() {
     orders.push(order); save();
+    buildMaandFilterBtns();
     showBetaalPage(order);
     document.getElementById('order-success').style.display='none';
     document.getElementById('f-naam').value='';
@@ -654,8 +655,6 @@ function showBetaalPage(o) {
   document.getElementById('pay-ref').textContent = '\uD83D\uDCCB Referentie: '+o.ref+' \u2014 bewaar dit!';
   document.getElementById('pay-amt2').textContent = fmt(o.totaal);
   document.getElementById('pay-omschr').textContent = o.ref+' \u2013 '+o.naam;
-  var waText = encodeURIComponent('\uD83C\uDF6A Vondelkoeken \u2013 TTV ENTAC\n\nHallo! Ik heb '+o.aantal+' koek'+(o.aantal>1?'en':'')+' besteld.\n\u20AC '+fmt(o.totaal)+' \u00B7 Ref: '+o.ref+'\n\nOp weg naar de overboeking!');
-  document.getElementById('wa-link').href = 'https://wa.me/'+settings.whatsapp+'?text='+waText;
   showPage('betaal');
   // Generate EPC QR code after page is shown
   setTimeout(function() {
@@ -704,7 +703,7 @@ function showTab(t) {
   if(t==='bestellingen') renderOrders();
   if(t==='beheerders') renderAdmins();
   if(t==='meldingen') renderMeldingen();
-  if(t==='export') updateExportInfo();
+  if(t==='export') { updateExportInfo(); buildMaandFilterBtns(); }
 }
 
 function setFilter(f, btn) {
@@ -856,9 +855,90 @@ function removeAdmin(id) {
   save(); renderAdmins();
 }
 
+
+// ── MAAND FILTER EXPORT ────────────────────────────────────────────────────────
+var exportMaandFilter = 'alle';
+var maandNamenExport = ['Januari','Februari','Maart','April','Mei','Juni',
+                        'Juli','Augustus','September','Oktober','November','December'];
+
+function buildMaandFilterBtns() {
+  var container = document.getElementById('maand-filter-btns');
+  if (!container) return;
+
+  // Verzamel alle unieke maand+jaar combinaties uit bestellingen
+  var maanden = {};
+  orders.forEach(function(o) {
+    // datum formaat: d-m-yyyy (nl-NL)
+    var parts = o.datum.split('-');
+    if (parts.length === 3) {
+      var m = parseInt(parts[1]) - 1; // 0-indexed
+      var j = parseInt(parts[2]);
+      var key = j + '-' + m;
+      if (!maanden[key]) maanden[key] = {jaar:j, maand:m, label:maandNamenExport[m]+' '+j};
+    }
+  });
+
+  // Sorteer chronologisch
+  var gesorteerd = Object.values(maanden).sort(function(a,b) {
+    return (a.jaar*12+a.maand) - (b.jaar*12+b.maand);
+  });
+
+  // Bouw knoppen
+  var html = '<button class="tab-btn '+(exportMaandFilter==='alle'?'active':'')+'" onclick="setExportMaand('alle',this)">Alle maanden</button>';
+  gesorteerd.forEach(function(m) {
+    var key = m.jaar+'-'+m.maand;
+    var active = exportMaandFilter === key ? 'active' : '';
+    html += '<button class="tab-btn '+active+'" onclick="setExportMaand(''+key+'',this)">'+m.label+'</button>';
+  });
+  container.innerHTML = html;
+  updateExportFilterInfo();
+}
+
+function setExportMaand(key, btn) {
+  exportMaandFilter = key;
+  document.querySelectorAll('#maand-filter-btns .tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  updateExportFilterInfo();
+  updateExportInfo();
+}
+
+function getFilteredOrders() {
+  if (exportMaandFilter === 'alle') return orders;
+  var parts = exportMaandFilter.split('-');
+  var jaar  = parseInt(parts[0]);
+  var maand = parseInt(parts[1]); // 0-indexed
+  return orders.filter(function(o) {
+    var dp = o.datum.split('-');
+    if (dp.length < 3) return false;
+    return parseInt(dp[1])-1 === maand && parseInt(dp[2]) === jaar;
+  });
+}
+
+function updateExportFilterInfo() {
+  var el = document.getElementById('export-filter-info');
+  if (!el) return;
+  var gefilterd = getFilteredOrders();
+  var betaald = gefilterd.filter(function(o){ return o.betaald; });
+  var totK = gefilterd.reduce(function(s,o){ return s+o.aantal; }, 0);
+  var totO = gefilterd.reduce(function(s,o){ return s+o.totaal; }, 0);
+  if (exportMaandFilter === 'alle') {
+    el.textContent = '';
+  } else {
+    el.innerHTML = '<span style="color:#c9a030">'+gefilterd.length+' bestellingen</span> &nbsp;|&nbsp; '
+      + totK+' koeken &nbsp;|&nbsp; '
+      + '<span style="color:#cc0000">'+fmt(totO)+'</span> totaal &nbsp;|&nbsp; '
+      + '<span style="color:#22c55e">'+betaald.length+' betaald</span>';
+  }
+}
+
 // ── EXPORT ────────────────────────────────────────────────────────────────────
 function exportExcel() {
   if (!window.XLSX) { alert("Excel export niet beschikbaar. Open de pagina in Safari of Chrome."); return; }
+  var exportOrders = getFilteredOrders();
+  var periodeLabel = exportMaandFilter === 'alle' ? 'Alle maanden' : (function(){
+    var p = exportMaandFilter.split('-');
+    return maandNamenExport[parseInt(p[1])]+' '+p[0];
+  })();
   const {totK,totO,totP,clubkas,inkoop} = calcStats();
   const wb = XLSX.utils.book_new();
 
