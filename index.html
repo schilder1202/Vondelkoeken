@@ -1207,11 +1207,12 @@ function exportExcel(type) {
     ];
     for (var i = 0; i < exportOrders.length; i++) {
       var o = exportOrders[i];
+      var heeftSmaken = o.smaken && (o.smaken.original + o.smaken.kardemom + o.smaken.cranberry) > 0;
       r1.push([
         o.naam, o.via||'',
-        (o.smaken&&o.smaken.original)||0,
-        (o.smaken&&o.smaken.kardemom)||0,
-        (o.smaken&&o.smaken.cranberry)||0,
+        heeftSmaken ? o.smaken.original  : '?',
+        heeftSmaken ? o.smaken.kardemom  : '?',
+        heeftSmaken ? o.smaken.cranberry : '?',
         o.aantal
       ]);
     }
@@ -1221,13 +1222,22 @@ function exportExcel(type) {
     r1.push([]);
 
     // ── Samenvatting voor leverancier ─────────────────────────────────────────
-    r1.push(['SAMENVATTING BESTELLING']);
+    var metSmaken  = exportOrders.filter(function(o){ return o.smaken && (o.smaken.original+o.smaken.kardemom+o.smaken.cranberry)>0; });
+    var zonderSmaken = exportOrders.filter(function(o){ return !o.smaken || (o.smaken.original+o.smaken.kardemom+o.smaken.cranberry)===0; });
+    var totZonder = zonderSmaken.reduce(function(s,o){ return s+o.aantal; }, 0);
+
+    r1.push(['SAMENVATTING BESTELLING VOOR LEVERANCIER']);
     r1.push(['Smaak', 'Aantal koeken']);
     r1.push(['Original',  totOriginal]);
     r1.push(['Kardemom',  totKardemom]);
     r1.push(['Cranberry', totCranberry]);
+    if (totZonder > 0) {
+      r1.push(['']);
+      r1.push(['⚠ Onbekende smaak (oude bestellingen)', totZonder]);
+      r1.push(['Controleer deze bestellingen handmatig']);
+    }
     r1.push(['']);
-    r1.push(['TOTAAL', totK2]);
+    r1.push(['TOTAAL KOEKEN', totK2]);
 
     var ws1 = XLSX.utils.aoa_to_sheet(r1);
     ws1['!cols'] = [{wch:24},{wch:20},{wch:14},{wch:14},{wch:14},{wch:14}];
