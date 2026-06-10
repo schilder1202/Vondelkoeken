@@ -575,7 +575,6 @@ const SMAKEN = [
   { id:'kardemom', naam:'Kardemom',  kleur:'#5a9a3a', omschrijving:'Kardemom, limoen, vijgen & sinaasappel.' },
   { id:'cranberry',naam:'Cranberry', kleur:'#cc4400', omschrijving:'Sinaasappel, cranberry & vanille.' }
 ];
-const ENTAC_PER_KOEK = PRIJS - INKOOP_PER_KOEK; // € 2,48 per koek
 
 let orders   = JSON.parse(localStorage.getItem('entac-vdk-orders')   || '[]');
 let admins   = JSON.parse(localStorage.getItem('entac-vdk-admins')   || 'null') || [{id:1,naam:"Hoofdbeheerder",username:"entac",password:"entac2026!",role:"super"}];
