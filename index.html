@@ -1192,20 +1192,48 @@ function exportExcel(type) {
   var wb = XLSX.utils.book_new();
 
   if (type === 'leverancier') {
-    var r1 = [['Naam besteller','Via wie','Original','Kardemom','Cranberry','Totaal koeken']];
+    // Bereken totalen per smaak
+    var totOriginal  = exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.original)||0);},0);
+    var totKardemom  = exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.kardemom)||0);},0);
+    var totCranberry = exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.cranberry)||0);},0);
+
+    // ── Blad 1: Bestellijst per persoon ──────────────────────────────────────
+    var r1 = [
+      ['TTV ENTAC – Vondelkoeken Bestelling voor Leverancier'],
+      ['Periode: ' + periodeLabel],
+      ['Datum: ' + today()],
+      [],
+      ['Naam besteller', 'Via wie', 'Original', 'Kardemom', 'Cranberry', 'Totaal']
+    ];
     for (var i = 0; i < exportOrders.length; i++) {
       var o = exportOrders[i];
-      r1.push([o.naam, o.via||'', (o.smaken&&o.smaken.original)||0, (o.smaken&&o.smaken.kardemom)||0, (o.smaken&&o.smaken.cranberry)||0, o.aantal]);
+      r1.push([
+        o.naam, o.via||'',
+        (o.smaken&&o.smaken.original)||0,
+        (o.smaken&&o.smaken.kardemom)||0,
+        (o.smaken&&o.smaken.cranberry)||0,
+        o.aantal
+      ]);
     }
     r1.push([]);
-    r1.push(['TOTAAL','', exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.original)||0);},0), exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.kardemom)||0);},0), exportOrders.reduce(function(s,o){return s+((o.smaken&&o.smaken.cranberry)||0);},0), totK2]);
+    r1.push(['TOTAAL PER PERSOON', '', totOriginal, totKardemom, totCranberry, totK2]);
+    r1.push([]);
+    r1.push([]);
+
+    // ── Samenvatting voor leverancier ─────────────────────────────────────────
+    r1.push(['SAMENVATTING BESTELLING']);
+    r1.push(['Smaak', 'Aantal koeken']);
+    r1.push(['Original',  totOriginal]);
+    r1.push(['Kardemom',  totKardemom]);
+    r1.push(['Cranberry', totCranberry]);
+    r1.push(['']);
+    r1.push(['TOTAAL', totK2]);
+
     var ws1 = XLSX.utils.aoa_to_sheet(r1);
-    ws1['!cols'] = [{wch:22},{wch:20},{wch:12},{wch:12},{wch:12},{wch:14}];
+    ws1['!cols'] = [{wch:24},{wch:20},{wch:14},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws1, 'Bestelling Leverancier');
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([XLSX.write(wb, {bookType:'xlsx',type:'array'})], {type:'application/octet-stream'}));
-    a.download = 'entac-leverancier-' + (exportMaandFilter==='alle'?'alle':exportMaandFilter) + '.xlsx';
-    a.click();
+
+    XLSX.writeFile(wb, 'entac-leverancier-' + (exportMaandFilter==='alle'?'alle':exportMaandFilter) + '.xlsx');
   } else {
     var r1 = [['Referentie','Naam','Email','Telefoon','Via wie','Original','Kardemom','Cranberry','Totaal','Totaal (\u20ac)','Datum','Betaald']];
     for (var i = 0; i < exportOrders.length; i++) {
