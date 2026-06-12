@@ -336,24 +336,39 @@ Elke koek kost €6,-. Na je bestelling ontvang je betaalinstructies. Vragen? Ma
       </div>
     </div>
 
-    <div class="qr-box">
-      <div class="qr-title">📱 Scan & Betaal — Alle Nederlandse bankieren apps</div>
-      <div style="font-size:12px;color:#999999;margin-bottom:4px">Scan met je bankapp. Bedrag en referentie staan al ingevuld.</div>
-      <div class="qr-amount" id="qr-amount-disp">€ 0,00</div>
+        <div class="qr-box">
+      <div class="qr-title">&#x1F4B3; Betalen</div>
+      <div class="qr-amount" id="qr-amount-disp">&#x20AC; 0,00</div>
       <div class="qr-ref" id="qr-ref-disp">VDK-000000</div>
-      <div id="qr-code" style="margin:14px auto;width:fit-content"></div>
-      <div class="bank-logos">
-        <span class="bank-badge">ING</span>
-        <span class="bank-badge">Rabobank</span>
-        <span class="bank-badge">ABN AMRO</span>
-        <span class="bank-badge">SNS</span>
-        <span class="bank-badge">ASN</span>
-        <span class="bank-badge">RegioBank</span>
-        <span class="bank-badge">Triodos</span>
-        <span class="bank-badge">Bunq</span>
+
+      <a id="pay-bankapp-btn" href="#" onclick="openBankApp(); return false;"
+        style="display:block;background:#cc0000;color:#fff;font-weight:bold;font-size:16px;
+               padding:14px 20px;border-radius:10px;text-decoration:none;text-align:center;
+               margin:14px 0 6px;box-shadow:0 4px 14px rgba(204,0,0,.4)">
+        &#x1F3E6; Betalen via bankapp
+      </a>
+      <div style="font-size:11px;color:#888;text-align:center;margin-bottom:12px">
+        Opent je bankapp met bedrag en referentie al ingevuld
       </div>
-      <div class="qr-sub">💡 Open je bankapp → Scan QR → Betaling staat klaar → Bevestigen</div>
-    </div>
+      <button onclick="kopieerRef()" id="copy-ref-btn"
+        style="width:100%;background:#1a1a1a;color:#c9a030;border:1px solid #c9a030;
+               padding:10px 20px;border-radius:8px;font-size:13px;font-weight:bold;
+               cursor:pointer;margin-bottom:14px;font-family:Georgia,serif">
+        &#x1F4CB; Kopieer referentie
+      </button>
+      <div style="border-top:1px solid #333;padding-top:12px">
+        <div style="font-size:11px;color:#888;text-align:center;margin-bottom:8px">
+          Op een computer? Scan deze QR met je bankapp:
+        </div>
+        <div id="qr-code" style="margin:0 auto;width:fit-content"></div>
+        <div class="bank-logos" style="margin-top:10px">
+          <span class="bank-badge">ING</span>
+          <span class="bank-badge">Rabobank</span>
+          <span class="bank-badge">ABN AMRO</span>
+          <span class="bank-badge">SNS</span>
+          <span class="bank-badge">Bunq</span>
+        </div>
+      </div></div>
 
     <div class="card">
       <div class="card-title">🏦 Liever handmatig overboeken?</div>
@@ -622,7 +637,39 @@ function save() {
 
 function getCloudKey() { return JSONBIN_KEY || settings.jsonbinKey || ''; }
 function getCloudId()  { return JSONBIN_ID  || settings.jsonbinId  || ''; }
-function hasCloud()    { return getCloudKey() && getCloudId(); }
+function hasCloud()    { return !!(getCloudKey() && getCloudId()); }
+function cloudAppendOrder(newOrder, callback) {
+  if (!hasCloud()) { if(callback) callback(false); return; }
+  fetch('https://api.jsonbin.io/v3/b/' + getCloudId() + '/latest', {
+    headers: { 'X-Master-Key': getCloudKey() }
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    var co = (data && data.record && data.record.orders) ? data.record.orders : [];
+    var ca = (data && data.record && data.record.admins) ? data.record.admins : admins;
+    co.push(newOrder);
+    return fetch('https://api.jsonbin.io/v3/b/' + getCloudId(), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': getCloudKey() },
+      body: JSON.stringify({ orders: co, admins: ca })
+    });
+  })
+  .then(function(){ if(callback) callback(true); })
+  .catch(function(e){ console.warn('Cloud fout:', e); if(callback) callback(false); });
+}
+
+function cloudSaveAll(callback) {
+  if (!hasCloud()) { if(callback) callback(false); return; }
+  fetch('https://api.jsonbin.io/v3/b/' + getCloudId(), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': getCloudKey() },
+    body: JSON.stringify({ orders: orders, admins: admins })
+  })
+  .then(function(){ if(callback) callback(true); })
+  .catch(function(e){ if(callback) callback(false); });
+}
+
+
 
 function cloudSave() {
   if (!hasCloud()) return;
@@ -830,6 +877,9 @@ function showBetaalPage(o) {
   if (qrAmt)    qrAmt.textContent    = fmt(o.totaal);
   if (qrRef)    qrRef.textContent    = o.ref + ' \u2013 ' + o.naam;
 
+  currentPayOrder = { iban: settings.iban || DEFAULT_IBAN, totaal: o.totaal, ref: o.ref, naam: o.naam };
+  var pb = document.getElementById('pay-bankapp-btn');
+  if (pb) { pb.innerHTML = '&#x1F3E6; Betalen via bankapp'; pb.style.background = '#cc0000'; }
   showPage('betaal');
   setTimeout(function() {
     generateEpcQr(settings.iban, DEFAULT_TENAAM, o.totaal, o.ref + ' ' + o.naam);
@@ -837,6 +887,41 @@ function showBetaalPage(o) {
 }
 
 // ── QR CODE ───────────────────────────────────────────────────────────────────
+var currentPayOrder = null;
+
+function openBankApp() {
+  if (!currentPayOrder) return;
+  var iban = currentPayOrder.iban.replace(/\s/g,'');
+  var amt  = currentPayOrder.totaal.toFixed(2);
+  var ref  = encodeURIComponent(currentPayOrder.ref + ' ' + currentPayOrder.naam);
+  var payto = 'payto://iban/' + iban + '?amount=EUR:' + amt + '&message=' + ref;
+  window.location.href = payto;
+  setTimeout(function() {
+    var btn = document.getElementById('pay-bankapp-btn');
+    if (btn) { btn.innerHTML = '&#x1F3E6; Bankapp niet gevonden &mdash; gebruik overboeking'; btn.style.background = '#333'; }
+  }, 1500);
+}
+
+function kopieerRef() {
+  if (!currentPayOrder) return;
+  var tekst = currentPayOrder.ref + ' - ' + currentPayOrder.naam;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(tekst).then(function() {
+      var btn = document.getElementById('copy-ref-btn');
+      if (btn) { btn.textContent = 'Gekopieerd!'; setTimeout(function(){ btn.textContent = 'Kopieer referentie'; }, 2000); }
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = tekst;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    var btn = document.getElementById('copy-ref-btn');
+    if (btn) { btn.textContent = 'Gekopieerd!'; setTimeout(function(){ btn.textContent = 'Kopieer referentie'; }, 2000); }
+  }
+}
+
 function generateEpcQr(iban, naam, bedrag, referentie) {
   try {
     if (typeof QRCode === 'undefined') {
@@ -998,7 +1083,7 @@ function togglePaid(id) {
   for (var i = 0; i < orders.length; i++) {
     if (orders[i].id === id) { orders[i].betaald = !orders[i].betaald; break; }
   }
-  save(); renderOrders(); updateStats();
+  save(); cloudSaveAll(null); renderOrders(); updateStats();
 }
 
 function deleteOrder(id) {
