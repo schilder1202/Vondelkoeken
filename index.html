@@ -903,6 +903,15 @@ function showBetaalPage(o) {
   if (qrAmt)    qrAmt.textContent    = fmt(o.totaal);
   if (qrRef)    qrRef.textContent    = o.ref + ' \u2013 ' + o.naam;
 
+  // Update kopieer-velden
+  var ciEl = document.getElementById('copy-iban-val');
+  var caEl = document.getElementById('copy-amt-val');
+  var crEl = document.getElementById('copy-ref-val');
+  var omschrVal = o.ref + ' - ' + o.naam;
+  if (ciEl) ciEl.textContent = settings.iban || DEFAULT_IBAN;
+  if (caEl) caEl.textContent = o.totaal.toFixed(2).replace('.', ',');
+  if (crEl) crEl.textContent = omschrVal;
+
   currentPayOrder = { iban: settings.iban || DEFAULT_IBAN, totaal: o.totaal, ref: o.ref, naam: o.naam };
   var pb = document.getElementById('pay-bankapp-btn');
   if (pb) { pb.innerHTML = '&#x1F3E6; Betalen via bankapp'; pb.style.background = '#cc0000'; }
