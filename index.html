@@ -346,15 +346,15 @@ Elke koek kost €6,-. Na je bestelling ontvang je betaalinstructies. Vragen? Ma
           &#x1F4F1; Betalen via je telefoon
         </div>
         <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.6">
-          Open je bankapp &#x2192; Nieuwe overboeking &#x2192; Kopieer de gegevens hieronder:
+          Open je bankapp &#x2192; Nieuwe overboeking &#x2192; Kopieer de gegevens:
         </div>
 
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:#888;margin-bottom:3px">IBAN</div>
           <div style="display:flex;justify-content:space-between;align-items:center;background:#111;border-radius:6px;padding:8px 12px">
-            <span style="color:#fff;font-size:13px" id="copy-iban-val">NL16 ABNA 0592 1386 15</span>
-            <button onclick="kopieerVeld('copy-iban-val','copy-iban-btn')" id="copy-iban-btn"
-              style="background:#cc0000;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
+            <span style="color:#fff;font-size:13px" id="pay-iban-copy">NL16 ABNA 0592 1386 15</span>
+            <button onclick="kopieerVeld('pay-iban-copy','btn-iban')" id="btn-iban"
+              style="background:#cc0000;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:12px;font-weight:bold;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
               Kopieer
             </button>
           </div>
@@ -363,20 +363,20 @@ Elke koek kost €6,-. Na je bestelling ontvang je betaalinstructies. Vragen? Ma
         <div style="margin-bottom:8px">
           <div style="font-size:11px;color:#888;margin-bottom:3px">Bedrag</div>
           <div style="display:flex;justify-content:space-between;align-items:center;background:#111;border-radius:6px;padding:8px 12px">
-            <span style="color:#cc0000;font-size:15px;font-weight:bold" id="copy-amt-val">0,00</span>
-            <button onclick="kopieerVeld('copy-amt-val','copy-amt-btn')" id="copy-amt-btn"
-              style="background:#cc0000;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
+            <span style="color:#cc0000;font-size:15px;font-weight:bold" id="pay-amt-copy">&#x20AC; 0,00</span>
+            <button onclick="kopieerVeld('pay-amt-copy','btn-amt')" id="btn-amt"
+              style="background:#cc0000;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:12px;font-weight:bold;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
               Kopieer
             </button>
           </div>
         </div>
 
         <div style="margin-bottom:4px">
-          <div style="font-size:11px;color:#888;margin-bottom:3px">Omschrijving (referentie)</div>
+          <div style="font-size:11px;color:#888;margin-bottom:3px">Omschrijving</div>
           <div style="display:flex;justify-content:space-between;align-items:center;background:#111;border-radius:6px;padding:8px 12px">
-            <span style="color:#c9a030;font-size:13px" id="copy-ref-val">VDK-000000</span>
-            <button onclick="kopieerVeld('copy-ref-val','copy-ref-btn')" id="copy-ref-btn"
-              style="background:#cc0000;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
+            <span style="color:#c9a030;font-size:13px" id="pay-omschr-copy">VDK-000000</span>
+            <button onclick="kopieerVeld('pay-omschr-copy','btn-omschr')" id="btn-omschr"
+              style="background:#cc0000;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:12px;font-weight:bold;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
               Kopieer
             </button>
           </div>
@@ -900,6 +900,14 @@ function showBetaalPage(o) {
   if (payRef)   payRef.textContent   = '\ud83d\udccb Referentie: ' + o.ref + ' \u2014 bewaar dit!';
   if (payAmt2)  payAmt2.textContent  = fmt(o.totaal);
   if (payOmschr)payOmschr.textContent= o.ref + ' \u2013 ' + o.naam;
+  // Update kopieer-velden direct
+  var cpIban  = document.getElementById('pay-iban-copy');
+  var cpAmt   = document.getElementById('pay-amt-copy');
+  var cpOmschr= document.getElementById('pay-omschr-copy');
+  if (cpIban)   cpIban.textContent   = settings.iban || DEFAULT_IBAN;
+  if (cpAmt)    cpAmt.textContent    = fmt(o.totaal);
+  if (cpOmschr) cpOmschr.textContent = o.ref + ' - ' + o.naam;
+
   if (qrAmt)    qrAmt.textContent    = fmt(o.totaal);
   if (qrRef)    qrRef.textContent    = o.ref + ' \u2013 ' + o.naam;
 
