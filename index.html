@@ -573,6 +573,9 @@ TTV ENTAC Enschede</textarea>
 
 <script>
 // ── CONSTANTS & STATE ─────────────────────────────────────────────────────────
+// !! VEREIST: vul hieronder je JSONBin gegevens in voor cloud opslag !!
+var JSONBIN_KEY = '$2a$10$.d7y6pfqFYe5IfZkQGDq7eQ5I.gIpRJaIgmwMeA12fbpHcDxMhIyy';  
+var JSONBIN_ID  = '6a2bb5f4f5f4af5e29e4cc73';  
 var PRIJS = 6;
 var INKOOP_PER_KOEK = 3.52;
 var ENTAC_PER_KOEK = 2.48;
@@ -612,33 +615,32 @@ function save() {
   localStorage.setItem('entac-vdk-orders',   JSON.stringify(orders));
   localStorage.setItem('entac-vdk-admins',   JSON.stringify(admins));
   localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
-  // Also save to cloud if configured
-  if (settings.jsonbinKey && settings.jsonbinId) {
-    cloudSave();
-  }
+  // Sla op in cloud (voor alle apparaten)
+  cloudSave();
 }
 
+function getCloudKey() { return JSONBIN_KEY || settings.jsonbinKey || ''; }
+function getCloudId()  { return JSONBIN_ID  || settings.jsonbinId  || ''; }
+function hasCloud()    { return getCloudKey() && getCloudId(); }
+
 function cloudSave() {
+  if (!hasCloud()) return;
   if (cloudSaving) return;
   cloudSaving = true;
-  var payload = { orders: orders, admins: admins };
-  fetch('https://api.jsonbin.io/v3/b/' + settings.jsonbinId, {
+  fetch('https://api.jsonbin.io/v3/b/' + getCloudId(), {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Master-Key': settings.jsonbinKey
-    },
-    body: JSON.stringify(payload)
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': getCloudKey() },
+    body: JSON.stringify({ orders: orders, admins: admins })
   })
   .then(function(r) { cloudSaving = false; })
   .catch(function(e) { cloudSaving = false; console.warn('Cloud save mislukt:', e); });
 }
 
 function cloudLoad(callback) {
-  if (!settings.jsonbinKey || !settings.jsonbinId) { callback(false); return; }
+  if (!hasCloud()) { callback(false); return; }
   showCloudStatus('laden...');
-  fetch('https://api.jsonbin.io/v3/b/' + settings.jsonbinId + '/latest', {
-    headers: { 'X-Master-Key': settings.jsonbinKey }
+  fetch('https://api.jsonbin.io/v3/b/' + getCloudId() + '/latest', {
+    headers: { 'X-Master-Key': getCloudKey() }
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
@@ -790,7 +792,7 @@ function placeOrder() {
 
   setTimeout(function() {
     orders.push(order);
-    save();
+    save(); // slaat op in localStorage EN cloud
     buildMaandFilterBtns();
     if (succEl) succEl.style.display = 'none';
     // Reset form
@@ -967,8 +969,8 @@ function updateExportInfo() {
 }
 
 function syncCloud() {
-  if (!settings.jsonbinKey || !settings.jsonbinId) {
-    alert('Vul eerst de JSONBin gegevens in via ⚙️ Instellingen om cloud opslag te activeren.');
+  if (!hasCloud()) {
+    alert('Cloud opslag is niet ingesteld. Vraag de hoofdbeheerder om de JSONBin gegevens in het HTML bestand te zetten.');
     return;
   }
   cloudLoad(function(ok) {
@@ -980,7 +982,7 @@ function syncCloud() {
 function renderAdminPanel() {
   if (!currentAdmin) return;
   // Try to load from cloud first, fallback to localStorage
-  if (settings.jsonbinKey && settings.jsonbinId) {
+  if (hasCloud()) {
     cloudLoad(function(ok) {
       updateStats(); renderOrders(); updateExportInfo(); updateBulkInfo();
     });
