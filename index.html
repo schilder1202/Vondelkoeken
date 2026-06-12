@@ -341,21 +341,47 @@ Elke koek kost €6,-. Na je bestelling ontvang je betaalinstructies. Vragen? Ma
       <div class="qr-amount" id="qr-amount-disp">&#x20AC; 0,00</div>
       <div class="qr-ref" id="qr-ref-disp">VDK-000000</div>
 
-      <a id="pay-bankapp-btn" href="#" onclick="openBankApp(); return false;"
-        style="display:block;background:#cc0000;color:#fff;font-weight:bold;font-size:16px;
-               padding:14px 20px;border-radius:10px;text-decoration:none;text-align:center;
-               margin:14px 0 6px;box-shadow:0 4px 14px rgba(204,0,0,.4)">
-        &#x1F3E6; Betalen via bankapp
-      </a>
-      <div style="font-size:11px;color:#888;text-align:center;margin-bottom:12px">
-        Opent je bankapp met bedrag en referentie al ingevuld
+      <div style="background:#1a1a1a;border-radius:10px;padding:14px;margin:14px 0">
+        <div style="font-size:12px;color:#c9a030;font-weight:bold;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">
+          &#x1F4F1; Betalen via je telefoon
+        </div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.6">
+          Open je bankapp &#x2192; Nieuwe overboeking &#x2192; Kopieer de gegevens hieronder:
+        </div>
+
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:#888;margin-bottom:3px">IBAN</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;background:#111;border-radius:6px;padding:8px 12px">
+            <span style="color:#fff;font-size:13px" id="copy-iban-val">NL16 ABNA 0592 1386 15</span>
+            <button onclick="kopieerVeld('copy-iban-val','copy-iban-btn')" id="copy-iban-btn"
+              style="background:#cc0000;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
+              Kopieer
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:#888;margin-bottom:3px">Bedrag</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;background:#111;border-radius:6px;padding:8px 12px">
+            <span style="color:#cc0000;font-size:15px;font-weight:bold" id="copy-amt-val">0,00</span>
+            <button onclick="kopieerVeld('copy-amt-val','copy-amt-btn')" id="copy-amt-btn"
+              style="background:#cc0000;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
+              Kopieer
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:4px">
+          <div style="font-size:11px;color:#888;margin-bottom:3px">Omschrijving (referentie)</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;background:#111;border-radius:6px;padding:8px 12px">
+            <span style="color:#c9a030;font-size:13px" id="copy-ref-val">VDK-000000</span>
+            <button onclick="kopieerVeld('copy-ref-val','copy-ref-btn')" id="copy-ref-btn"
+              style="background:#cc0000;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:Georgia,serif;flex-shrink:0;margin-left:8px">
+              Kopieer
+            </button>
+          </div>
+        </div>
       </div>
-      <button onclick="kopieerRef()" id="copy-ref-btn"
-        style="width:100%;background:#1a1a1a;color:#c9a030;border:1px solid #c9a030;
-               padding:10px 20px;border-radius:8px;font-size:13px;font-weight:bold;
-               cursor:pointer;margin-bottom:14px;font-family:Georgia,serif">
-        &#x1F4CB; Kopieer referentie
-      </button>
       <div style="border-top:1px solid #333;padding-top:12px">
         <div style="font-size:11px;color:#888;text-align:center;margin-bottom:8px">
           Op een computer? Scan deze QR met je bankapp:
@@ -900,6 +926,26 @@ function openBankApp() {
     var btn = document.getElementById('pay-bankapp-btn');
     if (btn) { btn.innerHTML = '&#x1F3E6; Bankapp niet gevonden &mdash; gebruik overboeking'; btn.style.background = '#333'; }
   }, 1500);
+}
+
+function kopieerVeld(veldId, btnId) {
+  var veld = document.getElementById(veldId);
+  var btn  = document.getElementById(btnId);
+  if (!veld) return;
+  var tekst = veld.textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(tekst).then(function() {
+      if (btn) { btn.textContent = 'Gekopieerd!'; setTimeout(function(){ btn.textContent = 'Kopieer'; }, 2000); }
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = tekst;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (btn) { btn.textContent = 'Gekopieerd!'; setTimeout(function(){ btn.textContent = 'Kopieer'; }, 2000); }
+  }
 }
 
 function kopieerRef() {
