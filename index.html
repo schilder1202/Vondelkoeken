@@ -640,92 +640,108 @@ function fmt(n) { return '\u20ac\u00a0' + Number(n).toFixed(2).replace('.', ',')
 function today() { return new Date().toLocaleDateString('nl-NL'); }
 function genRef() { return 'VDK-' + Math.random().toString(36).substring(2,8).toUpperCase(); }
 
-// ── CLOUD STORAGE (JSONBin.io) ───────────────────────────────────────────────
-var cloudSaving = false;
+// ── SUPABASE STORAGE ─────────────────────────────────────────────────────────
+var SUPA_URL = 'https://ndqklebeoyfrkcdhqpmo.supabase.co';
+var SUPA_KEY = 'sb_publishable_E0fgaXvKmJcwOQZvNy4Hjw_YUog1MV-';
 
-function save() {
-  // Always save to localStorage as backup
-  localStorage.setItem('entac-vdk-orders',   JSON.stringify(orders));
-  localStorage.setItem('entac-vdk-admins',   JSON.stringify(admins));
-  localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
-  // Sla op in cloud (voor alle apparaten)
-  cloudSave();
+function sbHeaders() {
+  return {
+    'apikey': SUPA_KEY,
+    'Authorization': 'Bearer ' + SUPA_KEY,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=minimal'
+  };
 }
 
-function getCloudKey() { return JSONBIN_KEY || settings.jsonbinKey || ''; }
-function getCloudId()  { return JSONBIN_ID  || settings.jsonbinId  || ''; }
-function hasCloud()    { return !!(getCloudKey() && getCloudId()); }
-function cloudAppendOrder(newOrder, callback) {
-  if (!hasCloud()) { if(callback) callback(false); return; }
-  fetch('https://api.jsonbin.io/v3/b/' + getCloudId() + '/latest', {
-    headers: { 'X-Master-Key': getCloudKey() }
-  })
-  .then(function(r){ return r.json(); })
-  .then(function(data){
-    var co = (data && data.record && data.record.orders) ? data.record.orders : [];
-    var ca = (data && data.record && data.record.admins) ? data.record.admins : admins;
-    co.push(newOrder);
-    return fetch('https://api.jsonbin.io/v3/b/' + getCloudId(), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': getCloudKey() },
-      body: JSON.stringify({ orders: co, admins: ca })
-    });
-  })
-  .then(function(){ if(callback) callback(true); })
-  .catch(function(e){ console.warn('Cloud fout:', e); if(callback) callback(false); });
-}
-
-function cloudSaveAll(callback) {
-  if (!hasCloud()) { if(callback) callback(false); return; }
-  fetch('https://api.jsonbin.io/v3/b/' + getCloudId(), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': getCloudKey() },
-    body: JSON.stringify({ orders: orders, admins: admins })
-  })
-  .then(function(){ if(callback) callback(true); })
-  .catch(function(e){ if(callback) callback(false); });
-}
-
-
-
-function cloudSave() {
-  if (!hasCloud()) return;
-  if (cloudSaving) return;
-  cloudSaving = true;
-  fetch('https://api.jsonbin.io/v3/b/' + getCloudId(), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': getCloudKey() },
-    body: JSON.stringify({ orders: orders, admins: admins })
-  })
-  .then(function(r) { cloudSaving = false; })
-  .catch(function(e) { cloudSaving = false; console.warn('Cloud save mislukt:', e); });
-}
-
-function cloudLoad(callback) {
-  if (!hasCloud()) { callback(false); return; }
+// Laad alle bestellingen vanuit Supabase
+function sbLoad(callback) {
   showCloudStatus('laden...');
-  fetch('https://api.jsonbin.io/v3/b/' + getCloudId() + '/latest', {
-    headers: { 'X-Master-Key': getCloudKey() }
+  fetch(SUPA_URL + '/rest/v1/bestellingen?select=*&order=created_at.asc', {
+    headers: sbHeaders()
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
-    if (data && data.record) {
-      if (data.record.orders)  { orders = data.record.orders;  localStorage.setItem('entac-vdk-orders', JSON.stringify(orders)); }
-      if (data.record.admins)  { admins = data.record.admins;  localStorage.setItem('entac-vdk-admins', JSON.stringify(admins)); }
-      showCloudStatus('gesynchroniseerd');
-      callback(true);
-    } else { callback(false); }
+    if (!Array.isArray(data)) { showCloudStatus('fout'); callback(false); return; }
+    orders = data.map(function(r) {
+      return {
+        id: r.id,
+        ref: r.ref, naam: r.naam, email: r.email, tel: r.tel||'',
+        via: r.via||'', aantal: r.aantal, totaal: r.totaal,
+        smaken: r.smaken || {original:0,kardemom:0,cranberry:0},
+        datum: r.datum, tijdstip: r.tijdstip||'',
+        betaald: r.betaald||false, gemeld: r.gemeld||false
+      };
+    });
+    localStorage.setItem('entac-vdk-orders', JSON.stringify(orders));
+    showCloudStatus('gesynchroniseerd ✔');
+    callback(true);
   })
-  .catch(function(e) { console.warn('Cloud load mislukt:', e); showCloudStatus('offline'); callback(false); });
+  .catch(function(e) { console.warn('Supabase load fout:', e); showCloudStatus('offline ❌'); callback(false); });
 }
 
-function showCloudStatus(status) {
+// Sla nieuwe bestelling op in Supabase
+function sbSave(order, callback) {
+  var row = {
+    ref: order.ref, naam: order.naam, email: order.email,
+    tel: order.tel||'', via: order.via||'',
+    aantal: order.aantal, totaal: order.totaal,
+    smaken: order.smaken, datum: order.datum,
+    tijdstip: order.tijdstip, betaald: false, gemeld: false
+  };
+  fetch(SUPA_URL + '/rest/v1/bestellingen', {
+    method: 'POST',
+    headers: sbHeaders(),
+    body: JSON.stringify(row)
+  })
+  .then(function(r) {
+    if (r.ok || r.status === 201) { if(callback) callback(true); }
+    else { r.text().then(function(t) { console.warn('Supabase insert fout:', t); if(callback) callback(false); }); }
+  })
+  .catch(function(e) { console.warn('Supabase save fout:', e); if(callback) callback(false); });
+}
+
+// Update betaald status
+function sbUpdateBetaald(ref, betaald, callback) {
+  fetch(SUPA_URL + '/rest/v1/bestellingen?ref=eq.' + encodeURIComponent(ref), {
+    method: 'PATCH', headers: sbHeaders(),
+    body: JSON.stringify({ betaald: betaald })
+  })
+  .then(function(r) { if(callback) callback(r.ok); })
+  .catch(function(e) { if(callback) callback(false); });
+}
+
+// Update gemeld status
+function sbUpdateGemeld(ref, gemeld, callback) {
+  fetch(SUPA_URL + '/rest/v1/bestellingen?ref=eq.' + encodeURIComponent(ref), {
+    method: 'PATCH', headers: sbHeaders(),
+    body: JSON.stringify({ gemeld: gemeld })
+  })
+  .then(function(r) { if(callback) callback(r.ok); })
+  .catch(function(e) { if(callback) callback(false); });
+}
+
+// Verwijder bestelling
+function sbDelete(ref, callback) {
+  fetch(SUPA_URL + '/rest/v1/bestellingen?ref=eq.' + encodeURIComponent(ref), {
+    method: 'DELETE', headers: sbHeaders()
+  })
+  .then(function(r) { if(callback) callback(r.ok); })
+  .catch(function(e) { if(callback) callback(false); });
+}
+
+function showCloudStatus(s) {
   var el = document.getElementById('cloud-status');
   if (!el) return;
-  var icons = { 'laden...':'⏳', 'gesynchroniseerd':'☁️ ✅', 'offline':'☁️ ❌' };
-  el.textContent = (icons[status]||'☁️') + ' ' + status;
-  el.style.color = status === 'gesynchroniseerd' ? '#22c55e' : status === 'offline' ? '#ff4444' : '#c9a030';
+  el.textContent = '☁️ ' + s;
+  el.style.color = s.indexOf('✔') >= 0 ? '#22c55e' : s.indexOf('❌') >= 0 ? '#ff4444' : '#c9a030';
 }
+
+// Legacy stubs (niet meer gebruikt maar voorkomen JS errors)
+function hasCloud() { return true; }
+function cloudSave() {}
+function cloudSaveAll() {}
+function cloudAppendOrder(o, cb) { sbSave(o, cb); }
+function cloudLoad(cb) { sbLoad(cb); }
 
 // ── SMAAK COUNTERS ────────────────────────────────────────────────────────────
 function getTotaalAantal() {
@@ -1293,10 +1309,13 @@ function getMeldingTekst(o) {
 }
 
 function markGemeld(id, status) {
+  var gemRef = null;
   for (var i = 0; i < orders.length; i++) {
-    if (orders[i].id === id) { orders[i].gemeld = status; break; }
+    if (orders[i].id === id) { orders[i].gemeld = status; gemRef = orders[i].ref; break; }
   }
-  save(); renderMeldingen(); updateBulkInfo();
+  save();
+  if (gemRef) sbUpdateGemeld(gemRef, status, null);
+  renderMeldingen(); updateBulkInfo();
 }
 
 function sendWhatsApp(id) {
