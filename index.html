@@ -548,8 +548,14 @@ TTV ENTAC Enschede</textarea>
         <div class="form-group"><label>IBAN rekeningnummer</label><input id="s-iban" type="text"></div>
         <div class="form-group"><label>WhatsApp nummer (zonder +, bijv. 31612345678)</label><input id="s-wa" type="text"></div>
         <div class="form-group"><label>Informatietekst op de bestelpagina</label><textarea id="s-info"></textarea></div>
-        <div style="margin-bottom:14px;padding:12px;background:var(--warm);border-radius:9px">
-          <div style="font-size:11px;font-weight:bold;color:var(--brown);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📧 EmailJS instelling (optioneel)</div>
+        <div style="margin-bottom:14px;padding:14px;background:#1a1a1a;border-radius:9px;border:1px solid #c9a030">
+          <div style="font-size:11px;font-weight:bold;color:#c9a030;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">☁️ Cloud Opslag (JSONBin.io) — voorkomt dat bestellingen verdwijnen</div>
+          <div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.6">1. Maak gratis account op <a href="https://jsonbin.io" target="_blank" style="color:#cc0000">jsonbin.io</a><br>2. Maak een nieuwe Bin aan → kopieer het Bin ID<br>3. Ga naar API Keys → kopieer je Master Key</div>
+          <div class="form-group"><label>JSONBin Master Key</label><input id="s-jb-key" type="password" placeholder="\$2a\$10\$..."></div>
+          <div class="form-group" style="margin-bottom:0"><label>JSONBin Bin ID</label><input id="s-jb-id" type="text" placeholder="64abc123..."></div>
+        </div>
+        <div style="margin-bottom:14px;padding:12px;background:#1a1a1a;border-radius:9px">
+          <div style="font-size:11px;font-weight:bold;color:#c9a030;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📧 EmailJS instelling (optioneel)</div>
           <div class="form-group"><label>EmailJS Service ID</label><input id="s-ejs-service" type="text" placeholder="service_xxxxxxx"></div>
           <div class="form-group"><label>EmailJS Template ID</label><input id="s-ejs-template" type="text" placeholder="template_xxxxxxx"></div>
           <div class="form-group" style="margin-bottom:0"><label>EmailJS Public Key</label><input id="s-ejs-key" type="text" placeholder="jouw_public_key"></div>
@@ -598,10 +604,60 @@ function fmt(n) { return '\u20ac\u00a0' + Number(n).toFixed(2).replace('.', ',')
 function today() { return new Date().toLocaleDateString('nl-NL'); }
 function genRef() { return 'VDK-' + Math.random().toString(36).substring(2,8).toUpperCase(); }
 
+// ── CLOUD STORAGE (JSONBin.io) ───────────────────────────────────────────────
+var cloudSaving = false;
+
 function save() {
+  // Always save to localStorage as backup
   localStorage.setItem('entac-vdk-orders',   JSON.stringify(orders));
   localStorage.setItem('entac-vdk-admins',   JSON.stringify(admins));
   localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
+  // Also save to cloud if configured
+  if (settings.jsonbinKey && settings.jsonbinId) {
+    cloudSave();
+  }
+}
+
+function cloudSave() {
+  if (cloudSaving) return;
+  cloudSaving = true;
+  var payload = { orders: orders, admins: admins };
+  fetch('https://api.jsonbin.io/v3/b/' + settings.jsonbinId, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Master-Key': settings.jsonbinKey
+    },
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) { cloudSaving = false; })
+  .catch(function(e) { cloudSaving = false; console.warn('Cloud save mislukt:', e); });
+}
+
+function cloudLoad(callback) {
+  if (!settings.jsonbinKey || !settings.jsonbinId) { callback(false); return; }
+  showCloudStatus('laden...');
+  fetch('https://api.jsonbin.io/v3/b/' + settings.jsonbinId + '/latest', {
+    headers: { 'X-Master-Key': settings.jsonbinKey }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data && data.record) {
+      if (data.record.orders)  { orders = data.record.orders;  localStorage.setItem('entac-vdk-orders', JSON.stringify(orders)); }
+      if (data.record.admins)  { admins = data.record.admins;  localStorage.setItem('entac-vdk-admins', JSON.stringify(admins)); }
+      showCloudStatus('gesynchroniseerd');
+      callback(true);
+    } else { callback(false); }
+  })
+  .catch(function(e) { console.warn('Cloud load mislukt:', e); showCloudStatus('offline'); callback(false); });
+}
+
+function showCloudStatus(status) {
+  var el = document.getElementById('cloud-status');
+  if (!el) return;
+  var icons = { 'laden...':'⏳', 'gesynchroniseerd':'☁️ ✅', 'offline':'☁️ ❌' };
+  el.textContent = (icons[status]||'☁️') + ' ' + status;
+  el.style.color = status === 'gesynchroniseerd' ? '#22c55e' : status === 'offline' ? '#ff4444' : '#c9a030';
 }
 
 // ── SMAAK COUNTERS ────────────────────────────────────────────────────────────
@@ -659,6 +715,8 @@ function loadSettingsForm() {
     's-iban':  settings.iban,
     's-wa':    settings.whatsapp,
     's-info':  settings.infoTekst,
+    's-jb-key': settings.jsonbinKey  || '',
+    's-jb-id':  settings.jsonbinId   || '',
     's-ejs-service':  settings.emailjsServiceId  || '',
     's-ejs-template': settings.emailjsTemplateId || '',
     's-ejs-key':      settings.emailjsPublicKey  || ''
@@ -674,6 +732,8 @@ function saveSettings() {
   settings.iban              = document.getElementById('s-iban').value;
   settings.whatsapp          = document.getElementById('s-wa').value;
   settings.infoTekst         = document.getElementById('s-info').value;
+  settings.jsonbinKey        = document.getElementById('s-jb-key').value;
+  settings.jsonbinId         = document.getElementById('s-jb-id').value;
   settings.emailjsServiceId  = document.getElementById('s-ejs-service').value;
   settings.emailjsTemplateId = document.getElementById('s-ejs-template').value;
   settings.emailjsPublicKey  = document.getElementById('s-ejs-key').value;
@@ -906,12 +966,28 @@ function updateExportInfo() {
   if (el) el.textContent = orders.length + ' bestellingen \u00b7 ' + st.totK + ' koeken';
 }
 
+function syncCloud() {
+  if (!settings.jsonbinKey || !settings.jsonbinId) {
+    alert('Vul eerst de JSONBin gegevens in via ⚙️ Instellingen om cloud opslag te activeren.');
+    return;
+  }
+  cloudLoad(function(ok) {
+    if (ok) { updateStats(); renderOrders(); updateExportInfo(); updateBulkInfo(); }
+    else alert('Synchronisatie mislukt. Controleer je JSONBin gegevens.');
+  });
+}
+
 function renderAdminPanel() {
   if (!currentAdmin) return;
-  updateStats();
-  renderOrders();
-  updateExportInfo();
-  updateBulkInfo();
+  // Try to load from cloud first, fallback to localStorage
+  if (settings.jsonbinKey && settings.jsonbinId) {
+    cloudLoad(function(ok) {
+      updateStats(); renderOrders(); updateExportInfo(); updateBulkInfo();
+    });
+  } else {
+    showCloudStatus('geen cloud ingesteld');
+    updateStats(); renderOrders(); updateExportInfo(); updateBulkInfo();
+  }
 }
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
