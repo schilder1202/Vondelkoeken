@@ -12,7 +12,7 @@
   body{font-family:Georgia,serif;background:#111111;color:#f4f4f4;min-height:100vh}
   :root{--black:#111111;--darkgray:#1c1c1c;--red:#cc0000;--offwhite:#f4f4f4;--warm:#2a2a2a;
     --gold:#c9a030;--goldD:#a07820;--accent:#cc0000;--accentL:#e63030;
-    --green:#22c55e;--greenL:#dcfce7;--err:#ef4444;--errL:#fee2e2;--gray:#999999}
+    --green:#22c55e;--greenL:#dcfce7;--err:#ef4444;--errL:#fee2e2;--gray:#999999;--amber:#cc0000;--brown:#c9a030}
 
   header{background:#111111;padding:12px 16px;display:flex;align-items:center;
     justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.5);border-bottom:2px solid #cc0000}
@@ -736,6 +736,21 @@ function showCloudStatus(s) {
   el.style.color = s.indexOf('✔') >= 0 ? '#22c55e' : s.indexOf('❌') >= 0 ? '#ff4444' : '#c9a030';
 }
 
+
+function save() {
+  try {
+    localStorage.setItem('entac-vdk-orders', JSON.stringify(orders));
+    localStorage.setItem('entac-vdk-admins', JSON.stringify(admins));
+    localStorage.setItem('entac-vdk-settings', JSON.stringify(settings));
+    return true;
+  } catch (e) {
+    console.error('LocalStorage save fout:', e);
+    showCloudStatus('lokaal opslaan fout ❌');
+    return false;
+  }
+}
+
+
 // Legacy stubs (niet meer gebruikt maar voorkomen JS errors)
 function hasCloud() { return true; }
 function cloudSave() {}
@@ -873,21 +888,33 @@ function placeOrder() {
 
   setTimeout(function() {
     orders.push(order);
-    save(); // slaat op in localStorage EN cloud
-    buildMaandFilterBtns();
-    if (succEl) succEl.style.display = 'none';
-    // Reset form
-    document.getElementById('f-naam').value  = '';
-    document.getElementById('f-email').value = '';
-    document.getElementById('f-tel').value   = '';
-    document.getElementById('f-via').value   = '';
-    smaken = {original:0, kardemom:0, cranberry:0};
-    ['original','kardemom','cranberry'].forEach(function(s) {
-      var el = document.getElementById('cnt-' + s);
-      if (el) el.textContent = '0';
+    save();
+
+    sbSave(order, function(ok) {
+      if (!ok) {
+        showCloudStatus('Supabase opslaan mislukt ❌');
+        console.error('Bestelling niet naar Supabase verzonden:', order);
+        alert('Let op: bestelling is lokaal opgeslagen, maar niet naar Supabase verzonden. Controleer de verbinding of Supabase-tabel.');
+      } else {
+        showCloudStatus('bestelling opgeslagen ✔');
+      }
+
+      buildMaandFilterBtns();
+      if (succEl) succEl.style.display = 'none';
+
+      // Reset form
+      document.getElementById('f-naam').value  = '';
+      document.getElementById('f-email').value = '';
+      document.getElementById('f-tel').value   = '';
+      document.getElementById('f-via').value   = '';
+      smaken = {original:0, kardemom:0, cranberry:0};
+      ['original','kardemom','cranberry'].forEach(function(s) {
+        var el = document.getElementById('cnt-' + s);
+        if (el) el.textContent = '0';
+      });
+      updateTotaalDisplay();
+      showBetaalPage(order);
     });
-    updateTotaalDisplay();
-    showBetaalPage(order);
   }, 600);
 }
 
@@ -1189,22 +1216,62 @@ function renderAdminPanel() {
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 function togglePaid(id) {
+  var changed = null;
   for (var i = 0; i < orders.length; i++) {
-    if (orders[i].id === id) { orders[i].betaald = !orders[i].betaald; break; }
+    if (orders[i].id === id) {
+      orders[i].betaald = !orders[i].betaald;
+      changed = orders[i];
+      break;
+    }
   }
-  save(); cloudSaveAll(null); renderOrders(); updateStats();
+
+  save();
+  renderOrders();
+  updateStats();
+
+  if (changed && changed.ref) {
+    sbUpdateBetaald(changed.ref, changed.betaald, function(ok) {
+      if (!ok) {
+        showCloudStatus('betaalstatus sync mislukt ❌');
+        console.error('Betaalstatus niet bijgewerkt in Supabase:', changed);
+      } else {
+        showCloudStatus('betaalstatus gesynchroniseerd ✔');
+      }
+    });
+  }
 }
 
 function deleteOrder(id) {
   var o = null;
-  for (var i = 0; i < orders.length; i++) { if (orders[i].id === id) { o = orders[i]; break; } }
+  for (var i = 0; i < orders.length; i++) {
+    if (orders[i].id === id) {
+      o = orders[i];
+      break;
+    }
+  }
   if (!o) return;
+
   var msg = o.betaald
     ? 'LET OP: bestelling is al BETAALD!\n\nToch verwijderen: ' + o.naam + ' | ' + fmt(o.totaal) + '?'
     : 'Bestelling verwijderen?\n\n' + o.naam + ' | ' + o.aantal + ' koek' + (o.aantal>1?'en':'') + ' | ' + fmt(o.totaal) + '\n\nDit kan niet ongedaan worden gemaakt.';
+
   if (!confirm(msg)) return;
+
   orders = orders.filter(function(x){ return x.id !== id; });
-  save(); renderOrders(); updateStats();
+  save();
+  renderOrders();
+  updateStats();
+
+  if (o.ref) {
+    sbDelete(o.ref, function(ok) {
+      if (!ok) {
+        showCloudStatus('verwijderen uit Supabase mislukt ❌');
+        console.error('Order lokaal verwijderd, maar niet uit Supabase:', o);
+      } else {
+        showCloudStatus('order verwijderd ✔');
+      }
+    });
+  }
 }
 
 function renderOrders() {
